@@ -248,7 +248,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, match MatchRes
 			httpx.Error(w, http.StatusBadGateway, "bad_gateway", "构造上游请求失败")
 			return
 		}
-		copyHeader(req.Header, r.Header)
+		copyProxyRequestHeader(req.Header, r.Header)
 		req.Host = req.URL.Host
 		applyHeaderRules(req.Header, match.Route.RequestHeaders)
 
@@ -266,7 +266,7 @@ func (h *Handler) forward(w http.ResponseWriter, r *http.Request, match MatchRes
 			io.Copy(io.Discard, resp.Body)
 			continue
 		}
-		copyHeader(w.Header(), resp.Header)
+		copyProxyResponseHeader(w.Header(), resp.Header)
 		applyHeaderRules(w.Header(), match.Route.ResponseHeaders)
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.Copy(w, resp.Body)
@@ -314,26 +314,6 @@ func joinURLPath(basePath, routePath string) string {
 		return normalizeRequestPath(routePath)
 	}
 	return strings.TrimRight(basePath, "/") + normalizeRequestPath(routePath)
-}
-
-func copyHeader(dst, src http.Header) {
-	for key, values := range src {
-		dst.Del(key)
-		for _, value := range values {
-			dst.Add(key, value)
-		}
-	}
-}
-
-func applyHeaderRules(headers http.Header, rules []models.HeaderRule) {
-	for _, rule := range rules {
-		switch rule.Operation {
-		case "remove":
-			headers.Del(rule.HeaderName)
-		case "set":
-			headers.Set(rule.HeaderName, rule.HeaderValue)
-		}
-	}
 }
 
 func shouldRetry(status int) bool {
