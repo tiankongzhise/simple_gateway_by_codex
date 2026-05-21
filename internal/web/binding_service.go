@@ -28,6 +28,28 @@ func (v authClientBindingVerifier) ValidateServiceGroup(ctx context.Context, ser
 	return nil
 }
 
+func (v authClientBindingVerifier) ValidateManagedService(ctx context.Context, serviceGroupName, authorizationCode, authServiceName string) error {
+	token, err := v.client.LatestServiceGroupToken(ctx, serviceGroupName, authorizationCode)
+	if err != nil {
+		return authClientErrorToAppError(err)
+	}
+	if token.AccessToken == "" {
+		return errUnauthorized("鉴权服务未返回有效服务组 token")
+	}
+	result, err := v.client.Verify(ctx, authclient.VerifyHeaders{
+		ServiceName:       serviceGroupName,
+		TargetServiceName: authServiceName,
+		AccessToken:       token.AccessToken,
+	})
+	if err != nil {
+		return authClientErrorToAppError(err)
+	}
+	if !result.OK {
+		return errForbidden("绑定服务组无权限管理该鉴权服务")
+	}
+	return nil
+}
+
 func authClientErrorToAppError(err error) error {
 	var authErr authclient.Error
 	if errors.As(err, &authErr) {

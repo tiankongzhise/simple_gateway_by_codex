@@ -46,10 +46,12 @@ type basicAuthService struct {
 
 type bindingVerifier interface {
 	ValidateServiceGroup(ctx context.Context, serviceGroupName, authorizationCode string) error
+	ValidateManagedService(ctx context.Context, serviceGroupName, authorizationCode, authServiceName string) error
 }
 
 type authCodeCipher interface {
 	Encrypt(authorizationCode string) (cryptoutil.EncryptedAuthorizationCode, error)
+	DecryptBinding(ciphertext, salt, algorithm string) (string, error)
 }
 
 type RegisterRequest struct {

@@ -3,6 +3,7 @@ package web
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -74,6 +75,10 @@ func (s *Server) handleCreateRoute(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, err)
 		return
 	}
+	if err := s.validateRouteAuthService(r.Context(), user.ID, route); err != nil {
+		writeAppError(w, err)
+		return
+	}
 	created, err := s.routesStore.CreateRoute(r.Context(), route)
 	if err != nil {
 		writeAppError(w, err)
@@ -100,6 +105,10 @@ func (s *Server) handleUpdateRoute(w http.ResponseWriter, r *http.Request) {
 	}
 	route, err := req.toModel(user.ID, routeID)
 	if err != nil {
+		writeAppError(w, err)
+		return
+	}
+	if err := s.validateRouteAuthService(r.Context(), user.ID, route); err != nil {
 		writeAppError(w, err)
 		return
 	}
@@ -255,4 +264,26 @@ func normalizeHeaderRules(phase string, rules []headerRuleRequest) []models.Head
 		})
 	}
 	return out
+}
+
+func (s *Server) validateRouteAuthService(ctx context.Context, userID int64, route models.Route) error {
+	if !route.AuthRequired {
+		return nil
+	}
+	if s.authVerifier == nil || s.authCodeCipher == nil {
+		return errInternal(errors.New("route auth verifier is not configured"))
+	}
+	binding, err := s.auth.GetServiceGroupBinding(ctx, userID)
+	if err != nil {
+		return errUnauthorized("请先绑定鉴权服务组")
+	}
+	authorizationCode, err := s.authCodeCipher.DecryptBinding(
+		binding.EncryptedAuthorizationCode,
+		binding.Salt,
+		binding.Algorithm,
+	)
+	if err != nil {
+		return errInternal(err)
+	}
+	return s.authVerifier.ValidateManagedService(ctx, binding.ServiceGroupName, authorizationCode, route.AuthServiceName)
 }

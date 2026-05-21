@@ -8,11 +8,13 @@ import (
 
 // Server contains HTTP handlers for public, API, UI, and gateway routes.
 type Server struct {
-	publicBaseURL string
-	cookieSecure  bool
-	auth          authService
-	routesStore   routeStore
-	mux           *http.ServeMux
+	publicBaseURL  string
+	cookieSecure   bool
+	auth           authService
+	routesStore    routeStore
+	authVerifier   bindingVerifier
+	authCodeCipher authCodeCipher
+	mux            *http.ServeMux
 }
 
 // NewServer constructs a web server with currently implemented endpoints.
@@ -38,13 +40,15 @@ func NewServerWithServices(publicBaseURL string, cookieSecure bool, auth authSer
 }
 
 // NewServerWithDependencies constructs a server with all implemented services.
-func NewServerWithDependencies(publicBaseURL string, cookieSecure bool, auth authService, routes routeStore) *Server {
+func NewServerWithDependencies(publicBaseURL string, cookieSecure bool, auth authService, routes routeStore, verifier bindingVerifier, cipher authCodeCipher) *Server {
 	s := &Server{
-		publicBaseURL: publicBaseURL,
-		cookieSecure:  cookieSecure,
-		auth:          auth,
-		routesStore:   routes,
-		mux:           http.NewServeMux(),
+		publicBaseURL:  publicBaseURL,
+		cookieSecure:   cookieSecure,
+		auth:           auth,
+		routesStore:    routes,
+		authVerifier:   verifier,
+		authCodeCipher: cipher,
+		mux:            http.NewServeMux(),
 	}
 	s.routes()
 	return s

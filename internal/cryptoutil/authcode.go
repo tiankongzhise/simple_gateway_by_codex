@@ -100,3 +100,12 @@ func (c *AuthorizationCodeCipher) Decrypt(value EncryptedAuthorizationCode) (str
 	}
 	return code, nil
 }
+
+// DecryptBinding decrypts a persisted service group binding secret.
+func (c *AuthorizationCodeCipher) DecryptBinding(ciphertext, salt, algorithm string) (string, error) {
+	return c.Decrypt(EncryptedAuthorizationCode{
+		Ciphertext: ciphertext,
+		Salt:       salt,
+		Algorithm:  algorithm,
+	})
+}
