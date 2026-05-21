@@ -43,6 +43,7 @@
 - `PUBLIC_BASE_URL`：对外访问基准地址，用于 usage 文档。
 - `DEFAULT_PROXY_TIMEOUT_SECONDS`：默认代理超时，默认 30。
 - `MAX_PROXY_RETRIES`：最大允许重试次数，默认 3。
+- `LOG_LEVEL`：JSON 日志等级，支持 `debug`、`info`、`warn`、`error`，默认 `info`。
 
 ## 3. 数据库
 
@@ -227,6 +228,14 @@ Content-Type: application/json
 - 对网络错误和 502/503/504 做有限重试。
 - 返回上游状态码、响应头和响应体。
 - 应用响应头规则。
+- 每个转发请求生成或复用 `X-Request-ID`，并写入客户端响应头、上游请求头和日志。
+
+运行时日志：
+
+- 使用 `log/slog` JSON 输出到 stdout。
+- 事件包括 `proxy.request.start`、`proxy.route.lookup`、`proxy.route.matched`、`proxy.auth.*`、`proxy.upstream.*`、`proxy.request.finish`、`proxy.request.failed`。
+- 只记录安全元数据，例如 `request_id`、`route_id`、`target_url`、`status`、`attempt`、`duration_ms`。
+- 不记录请求/响应 body，不输出 `Access-Token`、Cookie、授权码；日志里的 `target_url` 会移除 query。
 
 ## 9. 公共 usage 接口
 

@@ -18,6 +18,7 @@ const (
 	defaultDatabaseSSLMode = "disable"
 	defaultProxyTimeout    = 30 * time.Second
 	defaultMaxRetries      = 3
+	defaultLogLevel        = "info"
 	dotEnvPath             = ".env"
 )
 
@@ -43,6 +44,7 @@ type Config struct {
 	PublicBaseURL       string
 	DefaultProxyTimeout time.Duration
 	MaxProxyRetries     int
+	LogLevel            string
 }
 
 // Load reads .env, environment variables, applies defaults, and validates the result.
@@ -70,6 +72,7 @@ func Load() (Config, error) {
 		PublicBaseURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")), "/"),
 		DefaultProxyTimeout: defaultProxyTimeout,
 		MaxProxyRetries:     defaultMaxRetries,
+		LogLevel:            strings.ToLower(getEnv("LOG_LEVEL", defaultLogLevel)),
 	}
 
 	databasePort, err := parseIntEnv("DATABASE_PORT", 0)
@@ -101,6 +104,9 @@ func Load() (Config, error) {
 		return Config{}, errors.New("MAX_PROXY_RETRIES must be greater than or equal to 0")
 	}
 	cfg.MaxProxyRetries = maxRetries
+	if err := validateLogLevel(cfg.LogLevel); err != nil {
+		return Config{}, err
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
@@ -154,6 +160,15 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validateLogLevel(value string) error {
+	switch value {
+	case "debug", "info", "warn", "error":
+		return nil
+	default:
+		return fmt.Errorf("LOG_LEVEL is invalid: %s", value)
+	}
 }
 
 func validateDatabaseSSLMode(value string) error {

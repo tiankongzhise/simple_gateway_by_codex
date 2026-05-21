@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 
 	"simple_gateway_by_codex/internal/authclient"
 	"simple_gateway_by_codex/internal/config"
@@ -18,6 +20,16 @@ func Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	logger := newLogger(cfg.LogLevel)
+	slog.SetDefault(logger)
+	logger.Info("gateway.starting",
+		"server_addr", cfg.ServerAddr,
+		"public_base_url", cfg.PublicBaseURL,
+		"auth_service_base_url", cfg.AuthServiceBaseURL,
+		"default_proxy_timeout_seconds", int(cfg.DefaultProxyTimeout.Seconds()),
+		"max_proxy_retries", cfg.MaxProxyRetries,
+		"log_level", cfg.LogLevel,
+	)
 
 	store, err := db.Open(ctx, cfg.Database)
 	if err != nil {
@@ -51,6 +63,7 @@ func Run(ctx context.Context) error {
 
 	select {
 	case <-ctx.Done():
+		logger.Info("gateway.stopping")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.DefaultProxyTimeout)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
@@ -60,4 +73,19 @@ func Run(ctx context.Context) error {
 	case err := <-errCh:
 		return err
 	}
+}
+
+func newLogger(level string) *slog.Logger {
+	var slogLevel slog.Level
+	switch level {
+	case "debug":
+		slogLevel = slog.LevelDebug
+	case "warn":
+		slogLevel = slog.LevelWarn
+	case "error":
+		slogLevel = slog.LevelError
+	default:
+		slogLevel = slog.LevelInfo
+	}
+	return slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slogLevel}))
 }

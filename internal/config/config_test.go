@@ -44,6 +44,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	t.Setenv("PUBLIC_BASE_URL", "")
 	t.Setenv("DEFAULT_PROXY_TIMEOUT_SECONDS", "")
 	t.Setenv("MAX_PROXY_RETRIES", "")
+	t.Setenv("LOG_LEVEL", "")
 
 	cfg, err := Load()
 	if err != nil {
@@ -60,6 +61,34 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.Database.Password != "pa:ss@word" {
 		t.Fatalf("Database.Password = %q", cfg.Database.Password)
+	}
+	if cfg.LogLevel != defaultLogLevel {
+		t.Fatalf("LogLevel = %q", cfg.LogLevel)
+	}
+}
+
+func TestLoadRejectsInvalidLogLevel(t *testing.T) {
+	t.Setenv("DATABASE_HOST", "localhost")
+	t.Setenv("DATABASE_PORT", "5432")
+	t.Setenv("DATABASE_NAME", "db")
+	t.Setenv("DATABASE_USER", "user")
+	t.Setenv("DATABASE_PASSWORD", "password")
+	t.Setenv("DATABASE_SSLMODE", "")
+	t.Setenv("INVITE_CODE", "invite")
+	t.Setenv("SESSION_SECRET", "secret")
+	t.Setenv("AUTH_CODE_RSA_PRIVATE_KEY_FILE", "")
+	t.Setenv("AUTH_CODE_RSA_PRIVATE_KEY", "key")
+	t.Setenv("SERVER_ADDR", "")
+	t.Setenv("AUTH_SERVICE_BASE_URL", "")
+	t.Setenv("COOKIE_SECURE", "")
+	t.Setenv("PUBLIC_BASE_URL", "")
+	t.Setenv("DEFAULT_PROXY_TIMEOUT_SECONDS", "")
+	t.Setenv("MAX_PROXY_RETRIES", "")
+	t.Setenv("LOG_LEVEL", "verbose")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("expected invalid LOG_LEVEL error")
 	}
 }
 

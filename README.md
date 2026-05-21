@@ -61,6 +61,7 @@ COOKIE_SECURE=false
 PUBLIC_BASE_URL=http://localhost:8080
 DEFAULT_PROXY_TIMEOUT_SECONDS=30
 MAX_PROXY_RETRIES=3
+LOG_LEVEL=info
 ```
 
 必填项：
@@ -81,6 +82,8 @@ go run ./cmd/gateway
 ```
 
 默认监听 `http://localhost:8080`。
+
+启动后默认向 stdout 输出 JSON 日志。`LOG_LEVEL` 支持 `debug`、`info`、`warn`、`error`，默认 `info`。
 
 健康检查：
 
@@ -192,6 +195,12 @@ curl http://localhost:8080/gw/alice/api/users
 ```
 
 此时网关会用绑定服务组的 token 兜底校验，目标服务名优先取请求头 `Service-Name`，否则取路由配置的鉴权服务名称。
+
+## 转发追踪日志
+
+每次 `/gw/{userSlug}/...` 调用都会生成或复用 `X-Request-ID`，并把同一个 ID 写入客户端响应头、上游请求头和 JSON 日志。日志会覆盖入口请求、用户与路由匹配、鉴权、上游请求/响应、重试和最终状态，字段包含 `request_id`、`route_id`、`target_url`、`status`、`attempt`、`duration_ms` 等。
+
+日志只记录安全元数据，不记录请求/响应 body，不输出 `Access-Token`、Cookie、授权码，也会去掉 URL query 后再记录 `target_url`。
 
 ## 管理 API
 
