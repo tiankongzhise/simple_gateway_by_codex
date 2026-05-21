@@ -60,6 +60,11 @@ func (s *Server) routes() {
 		httpx.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	})
 	if s.auth != nil {
+		s.mux.HandleFunc("GET /", s.handleIndex)
+		s.mux.HandleFunc("GET /login", s.handleLoginPage)
+		s.mux.HandleFunc("POST /login", s.handleLoginForm)
+		s.mux.HandleFunc("GET /register", s.handleRegisterPage)
+		s.mux.HandleFunc("POST /register", s.handleRegisterForm)
 		s.mux.HandleFunc("POST /api/register", s.handleRegister)
 		s.mux.HandleFunc("POST /api/login", s.handleLogin)
 		s.mux.HandleFunc("POST /api/logout", s.requireAuth(s.handleLogout))
@@ -67,6 +72,14 @@ func (s *Server) routes() {
 		s.mux.HandleFunc("PUT /api/service-group-binding", s.requireAuth(s.handleRebindServiceGroup))
 	}
 	if s.auth != nil && s.routesStore != nil {
+		s.mux.HandleFunc("GET /routes", s.requireAuth(s.handleRoutesPage))
+		s.mux.HandleFunc("GET /routes/new", s.requireAuth(s.handleNewRoutePage))
+		s.mux.HandleFunc("POST /routes/new", s.requireAuth(s.handleCreateRouteForm))
+		s.mux.HandleFunc("GET /routes/{id}/edit", s.requireAuth(s.handleEditRoutePage))
+		s.mux.HandleFunc("POST /routes/{id}/edit", s.requireAuth(s.handleUpdateRouteForm))
+		s.mux.HandleFunc("POST /routes/{id}/delete", s.requireAuth(s.handleDeleteRouteForm))
+		s.mux.HandleFunc("GET /binding", s.requireAuth(s.handleBindingPage))
+		s.mux.HandleFunc("POST /binding", s.requireAuth(s.handleBindingForm))
 		s.mux.HandleFunc("GET /api/routes", s.requireAuth(s.handleListRoutes))
 		s.mux.HandleFunc("POST /api/routes", s.requireAuth(s.handleCreateRoute))
 		s.mux.HandleFunc("PUT /api/routes/{id}", s.requireAuth(s.handleUpdateRoute))
