@@ -24,7 +24,12 @@ func TestNormalizePEM(t *testing.T) {
 }
 
 func TestLoadAppliesDefaults(t *testing.T) {
-	t.Setenv("DATABASE_URL", "postgres://user:pass@localhost:5432/db")
+	t.Setenv("DATABASE_HOST", "localhost")
+	t.Setenv("DATABASE_PORT", "5432")
+	t.Setenv("DATABASE_NAME", "db")
+	t.Setenv("DATABASE_USER", "user")
+	t.Setenv("DATABASE_PASSWORD", "pa:ss@word")
+	t.Setenv("DATABASE_SSLMODE", "")
 	t.Setenv("INVITE_CODE", "invite")
 	t.Setenv("SESSION_SECRET", "secret")
 	t.Setenv("AUTH_CODE_RSA_PRIVATE_KEY", "key")
@@ -44,5 +49,11 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.AuthServiceBaseURL != defaultAuthServiceURL {
 		t.Fatalf("AuthServiceBaseURL = %q", cfg.AuthServiceBaseURL)
+	}
+	if cfg.Database.SSLMode != defaultDatabaseSSLMode {
+		t.Fatalf("Database.SSLMode = %q", cfg.Database.SSLMode)
+	}
+	if cfg.Database.Password != "pa:ss@word" {
+		t.Fatalf("Database.Password = %q", cfg.Database.Password)
 	}
 }

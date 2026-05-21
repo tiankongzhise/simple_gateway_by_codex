@@ -24,7 +24,11 @@
 
 必填环境变量：
 
-- `DATABASE_URL`：PostgreSQL 连接串。
+- `DATABASE_HOST`：PostgreSQL 主机。
+- `DATABASE_PORT`：PostgreSQL 端口。
+- `DATABASE_NAME`：PostgreSQL 数据库名。
+- `DATABASE_USER`：PostgreSQL 用户名。
+- `DATABASE_PASSWORD`：PostgreSQL 密码。
 - `INVITE_CODE`：共享注册邀请码。
 - `SESSION_SECRET`：会话签名密钥。
 - `AUTH_CODE_RSA_PRIVATE_KEY`：PEM 格式 RSA 私钥，支持换行或 `\n` 转义。
@@ -32,6 +36,7 @@
 可选环境变量：
 
 - `SERVER_ADDR`：监听地址，默认 `:8080`。
+- `DATABASE_SSLMODE`：PostgreSQL SSL 模式，默认 `disable`。
 - `AUTH_SERVICE_BASE_URL`：鉴权服务地址，默认 `https://auth-service.baichengedu.com`。
 - `COOKIE_SECURE`：是否仅通过 HTTPS 发送 Cookie，默认 `false`。
 - `PUBLIC_BASE_URL`：对外访问基准地址，用于 usage 文档。
@@ -255,7 +260,7 @@ HTTP 测试：
 
 数据库测试：
 
-- 优先使用真实 PostgreSQL 的 `DATABASE_URL`。
+- 优先使用真实 PostgreSQL，并通过 `DATABASE_HOST`、`DATABASE_PORT`、`DATABASE_NAME`、`DATABASE_USER`、`DATABASE_PASSWORD` 配置连接。
 - 未配置测试数据库时跳过集成测试。
 
 ## 11. 提交规范

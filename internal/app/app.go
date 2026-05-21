@@ -19,7 +19,7 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
-	store, err := db.Open(ctx, cfg.DatabaseURL)
+	store, err := db.Open(ctx, cfg.Database)
 	if err != nil {
 		return err
 	}

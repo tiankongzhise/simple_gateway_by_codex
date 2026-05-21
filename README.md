@@ -47,7 +47,12 @@ openssl genrsa -out auth_code_private.pem 2048
 
 ```env
 SERVER_ADDR=:8080
-DATABASE_URL=postgres://simple_gateway:change-me@localhost:5432/simple_gateway?sslmode=disable
+DATABASE_HOST=localhost
+DATABASE_PORT=5432
+DATABASE_NAME=simple_gateway
+DATABASE_USER=simple_gateway
+DATABASE_PASSWORD=change-me
+DATABASE_SSLMODE=disable
 INVITE_CODE=replace-with-your-invite-code
 SESSION_SECRET=replace-with-a-long-random-secret
 AUTH_SERVICE_BASE_URL=https://auth-service.baichengedu.com
@@ -60,7 +65,11 @@ MAX_PROXY_RETRIES=3
 
 必填项：
 
-- `DATABASE_URL`
+- `DATABASE_HOST`
+- `DATABASE_PORT`
+- `DATABASE_NAME`
+- `DATABASE_USER`
+- `DATABASE_PASSWORD`
 - `INVITE_CODE`
 - `SESSION_SECRET`
 - `AUTH_CODE_RSA_PRIVATE_KEY`

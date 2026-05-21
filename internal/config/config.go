@@ -12,16 +12,27 @@ import (
 )
 
 const (
-	defaultServerAddr     = ":8080"
-	defaultAuthServiceURL = "https://auth-service.baichengedu.com"
-	defaultProxyTimeout   = 30 * time.Second
-	defaultMaxRetries     = 3
+	defaultServerAddr      = ":8080"
+	defaultAuthServiceURL  = "https://auth-service.baichengedu.com"
+	defaultDatabaseSSLMode = "disable"
+	defaultProxyTimeout    = 30 * time.Second
+	defaultMaxRetries      = 3
 )
+
+// DatabaseConfig contains PostgreSQL connection settings.
+type DatabaseConfig struct {
+	Host     string
+	Port     int
+	Name     string
+	User     string
+	Password string
+	SSLMode  string
+}
 
 // Config contains all runtime settings needed by the gateway.
 type Config struct {
 	ServerAddr          string
-	DatabaseURL         string
+	Database            DatabaseConfig
 	InviteCode          string
 	SessionSecret       string
 	AuthServiceBaseURL  string
@@ -37,8 +48,14 @@ func Load() (Config, error) {
 	_ = loadDotEnv(".env")
 
 	cfg := Config{
-		ServerAddr:          getEnv("SERVER_ADDR", defaultServerAddr),
-		DatabaseURL:         strings.TrimSpace(os.Getenv("DATABASE_URL")),
+		ServerAddr: getEnv("SERVER_ADDR", defaultServerAddr),
+		Database: DatabaseConfig{
+			Host:     strings.TrimSpace(os.Getenv("DATABASE_HOST")),
+			Name:     strings.TrimSpace(os.Getenv("DATABASE_NAME")),
+			User:     strings.TrimSpace(os.Getenv("DATABASE_USER")),
+			Password: os.Getenv("DATABASE_PASSWORD"),
+			SSLMode:  getEnv("DATABASE_SSLMODE", defaultDatabaseSSLMode),
+		},
 		InviteCode:          strings.TrimSpace(os.Getenv("INVITE_CODE")),
 		SessionSecret:       strings.TrimSpace(os.Getenv("SESSION_SECRET")),
 		AuthServiceBaseURL:  strings.TrimRight(getEnv("AUTH_SERVICE_BASE_URL", defaultAuthServiceURL), "/"),
@@ -47,6 +64,12 @@ func Load() (Config, error) {
 		DefaultProxyTimeout: defaultProxyTimeout,
 		MaxProxyRetries:     defaultMaxRetries,
 	}
+
+	databasePort, err := parseIntEnv("DATABASE_PORT", 0)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Database.Port = databasePort
 
 	cookieSecure, err := parseBoolEnv("COOKIE_SECURE", false)
 	if err != nil {
@@ -81,8 +104,20 @@ func Load() (Config, error) {
 // Validate checks required settings and URL fields.
 func (c Config) Validate() error {
 	var missing []string
-	if c.DatabaseURL == "" {
-		missing = append(missing, "DATABASE_URL")
+	if c.Database.Host == "" {
+		missing = append(missing, "DATABASE_HOST")
+	}
+	if c.Database.Port == 0 {
+		missing = append(missing, "DATABASE_PORT")
+	}
+	if c.Database.Name == "" {
+		missing = append(missing, "DATABASE_NAME")
+	}
+	if c.Database.User == "" {
+		missing = append(missing, "DATABASE_USER")
+	}
+	if c.Database.Password == "" {
+		missing = append(missing, "DATABASE_PASSWORD")
 	}
 	if c.InviteCode == "" {
 		missing = append(missing, "INVITE_CODE")
@@ -97,6 +132,12 @@ func (c Config) Validate() error {
 		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
 	}
 
+	if c.Database.Port < 1 || c.Database.Port > 65535 {
+		return errors.New("DATABASE_PORT must be between 1 and 65535")
+	}
+	if err := validateDatabaseSSLMode(c.Database.SSLMode); err != nil {
+		return err
+	}
 	if _, err := url.ParseRequestURI(c.AuthServiceBaseURL); err != nil {
 		return fmt.Errorf("AUTH_SERVICE_BASE_URL is invalid: %w", err)
 	}
@@ -106,6 +147,15 @@ func (c Config) Validate() error {
 		}
 	}
 	return nil
+}
+
+func validateDatabaseSSLMode(value string) error {
+	switch value {
+	case "disable", "allow", "prefer", "require", "verify-ca", "verify-full":
+		return nil
+	default:
+		return fmt.Errorf("DATABASE_SSLMODE is invalid: %s", value)
+	}
 }
 
 func loadDotEnv(path string) error {
