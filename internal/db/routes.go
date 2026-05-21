@@ -171,6 +171,37 @@ func (s *Store) ListRoutes(ctx context.Context, userID int64) ([]models.Route, e
 	return routes, nil
 }
 
+// ListEnabledRoutes returns enabled routes for runtime gateway matching.
+func (s *Store) ListEnabledRoutes(ctx context.Context, userID int64) ([]models.Route, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, user_id, name, description, enabled, match_type, path_pattern, methods,
+			upstream_url, strip_prefix, timeout_seconds, retry_count, priority, auth_required,
+			auth_service_name, created_at, updated_at
+		FROM routes
+		WHERE user_id=$1 AND enabled=TRUE
+		ORDER BY priority DESC, path_pattern DESC, id ASC
+	`, userID)
+	if err != nil {
+		return nil, fmt.Errorf("list enabled routes: %w", err)
+	}
+	collected, err := pgx.CollectRows(rows, pgx.RowToStructByName[routeRow])
+	if err != nil {
+		return nil, fmt.Errorf("collect enabled routes: %w", err)
+	}
+	routes := make([]models.Route, 0, len(collected))
+	for _, row := range collected {
+		routes = append(routes, row.toModel())
+	}
+	ptrs := make([]*models.Route, 0, len(routes))
+	for i := range routes {
+		ptrs = append(ptrs, &routes[i])
+	}
+	if err := s.loadHeaderRules(ctx, ptrs); err != nil {
+		return nil, err
+	}
+	return routes, nil
+}
+
 type routeRow struct {
 	ID              int64     `db:"id"`
 	UserID          int64     `db:"user_id"`

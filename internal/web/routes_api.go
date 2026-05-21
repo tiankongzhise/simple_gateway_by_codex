@@ -14,7 +14,9 @@ import (
 )
 
 type routeStore interface {
+	GetUserBySlug(ctx context.Context, slug string) (models.User, error)
 	ListRoutes(ctx context.Context, userID int64) ([]models.Route, error)
+	ListEnabledRoutes(ctx context.Context, userID int64) ([]models.Route, error)
 	CreateRoute(ctx context.Context, route models.Route) (models.Route, error)
 	UpdateRoute(ctx context.Context, route models.Route) (models.Route, error)
 	DeleteRoute(ctx context.Context, userID, routeID int64) error

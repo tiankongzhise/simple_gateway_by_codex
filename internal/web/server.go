@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"simple_gateway_by_codex/internal/httpx"
+	"simple_gateway_by_codex/internal/proxy"
 )
 
 // Server contains HTTP handlers for public, API, UI, and gateway routes.
@@ -14,6 +15,7 @@ type Server struct {
 	routesStore    routeStore
 	authVerifier   bindingVerifier
 	authCodeCipher authCodeCipher
+	gateway        http.Handler
 	mux            *http.ServeMux
 }
 
@@ -48,6 +50,7 @@ func NewServerWithDependencies(publicBaseURL string, cookieSecure bool, auth aut
 		routesStore:    routes,
 		authVerifier:   verifier,
 		authCodeCipher: cipher,
+		gateway:        proxy.NewHandler(routes),
 		mux:            http.NewServeMux(),
 	}
 	s.routes()
@@ -59,6 +62,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
 	})
+	if s.gateway != nil {
+		s.mux.Handle("/gw/", s.gateway)
+	}
 	if s.auth != nil {
 		s.mux.HandleFunc("GET /", s.handleIndex)
 		s.mux.HandleFunc("GET /login", s.handleLoginPage)
