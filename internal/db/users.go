@@ -32,6 +32,46 @@ func (s *Store) CreateUser(ctx context.Context, username, userSlug, passwordHash
 	return user, nil
 }
 
+// CreateUserWithBinding creates a user and the initial service group binding atomically.
+func (s *Store) CreateUserWithBinding(ctx context.Context, username, userSlug, passwordHash string, binding models.ServiceGroupBinding) (models.User, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return models.User{}, fmt.Errorf("begin create user with binding: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	var user models.User
+	err = tx.QueryRow(ctx, `
+		INSERT INTO users (username, user_slug, password_hash)
+		VALUES ($1, $2, $3)
+		RETURNING id, username, user_slug, password_hash, created_at, updated_at
+	`, username, userSlug, passwordHash).Scan(
+		&user.ID,
+		&user.Username,
+		&user.UserSlug,
+		&user.PasswordHash,
+		&user.CreatedAt,
+		&user.UpdatedAt,
+	)
+	if err != nil {
+		return models.User{}, fmt.Errorf("create user: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO service_group_bindings (
+			user_id, service_group_name, encrypted_authorization_code, salt, algorithm
+		)
+		VALUES ($1, $2, $3, $4, $5)
+	`, user.ID, binding.ServiceGroupName, binding.EncryptedAuthorizationCode, binding.Salt, binding.Algorithm); err != nil {
+		return models.User{}, fmt.Errorf("create initial service group binding: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return models.User{}, fmt.Errorf("commit create user with binding: %w", err)
+	}
+	return user, nil
+}
+
 // GetUserByUsername returns a user by login username.
 func (s *Store) GetUserByUsername(ctx context.Context, username string) (models.User, error) {
 	return s.scanUser(ctx, `SELECT id, username, user_slug, password_hash, created_at, updated_at FROM users WHERE username=$1`, username)

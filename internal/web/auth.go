@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"simple_gateway_by_codex/internal/cryptoutil"
 	"simple_gateway_by_codex/internal/db"
 	"simple_gateway_by_codex/internal/httpx"
 	"simple_gateway_by_codex/internal/models"
@@ -37,6 +38,16 @@ type basicAuthService struct {
 	store        *db.Store
 	inviteCode   string
 	cookieSecure bool
+	binding      bindingVerifier
+	cipher       authCodeCipher
+}
+
+type bindingVerifier interface {
+	ValidateServiceGroup(ctx context.Context, serviceGroupName, authorizationCode string) error
+}
+
+type authCodeCipher interface {
+	Encrypt(authorizationCode string) (cryptoutil.EncryptedAuthorizationCode, error)
 }
 
 type RegisterRequest struct {
@@ -58,8 +69,11 @@ func newBasicAuthService(store *db.Store, inviteCode string, cookieSecure bool) 
 }
 
 // NewBasicAuthForApp creates the default auth service used by the application.
-func NewBasicAuthForApp(store *db.Store, inviteCode string, cookieSecure bool) authService {
-	return newBasicAuthService(store, inviteCode, cookieSecure)
+func NewBasicAuthForApp(store *db.Store, inviteCode string, cookieSecure bool, binding bindingVerifier, cipher authCodeCipher) authService {
+	service := newBasicAuthService(store, inviteCode, cookieSecure)
+	service.binding = binding
+	service.cipher = cipher
+	return service
 }
 
 func (s *basicAuthService) Register(ctx context.Context, req RegisterRequest) (models.User, string, error) {
@@ -77,12 +91,32 @@ func (s *basicAuthService) Register(ctx context.Context, req RegisterRequest) (m
 	if len(req.Password) < 8 {
 		return models.User{}, "", errBadRequest("密码长度至少 8 位")
 	}
+	req.ServiceGroupName = strings.TrimSpace(req.ServiceGroupName)
+	req.AuthorizationCode = strings.TrimSpace(req.AuthorizationCode)
+	if req.ServiceGroupName == "" || req.AuthorizationCode == "" {
+		return models.User{}, "", errBadRequest("注册时必须填写服务组名称和永久授权码")
+	}
+	if s.binding == nil || s.cipher == nil {
+		return models.User{}, "", errInternal(errors.New("binding service is not configured"))
+	}
+	if err := s.binding.ValidateServiceGroup(ctx, req.ServiceGroupName, req.AuthorizationCode); err != nil {
+		return models.User{}, "", err
+	}
+	encrypted, err := s.cipher.Encrypt(req.AuthorizationCode)
+	if err != nil {
+		return models.User{}, "", errInternal(err)
+	}
 
 	hash, err := security.HashPassword(req.Password)
 	if err != nil {
 		return models.User{}, "", errInternal(err)
 	}
-	user, err := s.store.CreateUser(ctx, req.Username, req.UserSlug, hash)
+	user, err := s.store.CreateUserWithBinding(ctx, req.Username, req.UserSlug, hash, models.ServiceGroupBinding{
+		ServiceGroupName:           req.ServiceGroupName,
+		EncryptedAuthorizationCode: encrypted.Ciphertext,
+		Salt:                       encrypted.Salt,
+		Algorithm:                  encrypted.Algorithm,
+	})
 	if err != nil {
 		return models.User{}, "", errConflict("用户名或用户 slug 已存在")
 	}

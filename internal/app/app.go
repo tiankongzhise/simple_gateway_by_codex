@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
+	"simple_gateway_by_codex/internal/authclient"
 	"simple_gateway_by_codex/internal/config"
+	"simple_gateway_by_codex/internal/cryptoutil"
 	"simple_gateway_by_codex/internal/db"
 	"simple_gateway_by_codex/internal/web"
 )
@@ -26,7 +28,12 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
-	auth := web.NewBasicAuthForApp(store, cfg.InviteCode, cfg.CookieSecure)
+	cipher, err := cryptoutil.NewAuthorizationCodeCipher(cfg.RSAPrivateKeyPEM)
+	if err != nil {
+		return err
+	}
+	authClient := authclient.New(cfg.AuthServiceBaseURL)
+	auth := web.NewBasicAuthForApp(store, cfg.InviteCode, cfg.CookieSecure, web.NewBindingVerifier(authClient), cipher)
 	server := &http.Server{
 		Addr:    cfg.ServerAddr,
 		Handler: web.NewServerWithServices(cfg.PublicBaseURL, cfg.CookieSecure, auth),
