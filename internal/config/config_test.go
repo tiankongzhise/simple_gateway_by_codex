@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestConfigValidateRequiresMandatoryValues(t *testing.T) {
 	cfg := Config{}
@@ -32,6 +36,7 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	t.Setenv("DATABASE_SSLMODE", "")
 	t.Setenv("INVITE_CODE", "invite")
 	t.Setenv("SESSION_SECRET", "secret")
+	t.Setenv("AUTH_CODE_RSA_PRIVATE_KEY_FILE", "")
 	t.Setenv("AUTH_CODE_RSA_PRIVATE_KEY", "key")
 	t.Setenv("SERVER_ADDR", "")
 	t.Setenv("AUTH_SERVICE_BASE_URL", "")
@@ -55,5 +60,42 @@ func TestLoadAppliesDefaults(t *testing.T) {
 	}
 	if cfg.Database.Password != "pa:ss@word" {
 		t.Fatalf("Database.Password = %q", cfg.Database.Password)
+	}
+}
+
+func TestLoadRSAPrivateKeyPEMFromFileRelativeToDotEnv(t *testing.T) {
+	tempDir := t.TempDir()
+	dotEnvPath := filepath.Join(tempDir, ".env")
+	keyPath := filepath.Join(tempDir, "RSA_PRIVATE.pem")
+	want := "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----"
+
+	if err := os.WriteFile(dotEnvPath, []byte(""), 0o600); err != nil {
+		t.Fatalf("WriteFile(.env) error = %v", err)
+	}
+	if err := os.WriteFile(keyPath, []byte(want), 0o600); err != nil {
+		t.Fatalf("WriteFile(key) error = %v", err)
+	}
+	t.Setenv("AUTH_CODE_RSA_PRIVATE_KEY_FILE", "RSA_PRIVATE.pem")
+	t.Setenv("AUTH_CODE_RSA_PRIVATE_KEY", "ignored")
+
+	got, err := loadRSAPrivateKeyPEM(dotEnvPath)
+	if err != nil {
+		t.Fatalf("loadRSAPrivateKeyPEM() error = %v", err)
+	}
+	if got != want {
+		t.Fatalf("loadRSAPrivateKeyPEM() = %q", got)
+	}
+}
+
+func TestLoadRSAPrivateKeyPEMFallsBackToEnvironmentValue(t *testing.T) {
+	t.Setenv("AUTH_CODE_RSA_PRIVATE_KEY_FILE", "")
+	t.Setenv("AUTH_CODE_RSA_PRIVATE_KEY", "-----BEGIN PRIVATE KEY-----\\nabc\\n-----END PRIVATE KEY-----")
+
+	got, err := loadRSAPrivateKeyPEM(".env")
+	if err != nil {
+		t.Fatalf("loadRSAPrivateKeyPEM() error = %v", err)
+	}
+	if got != "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----" {
+		t.Fatalf("loadRSAPrivateKeyPEM() = %q", got)
 	}
 }

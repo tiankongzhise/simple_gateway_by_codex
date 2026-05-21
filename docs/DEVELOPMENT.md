@@ -31,7 +31,8 @@
 - `DATABASE_PASSWORD`：PostgreSQL 密码。
 - `INVITE_CODE`：共享注册邀请码。
 - `SESSION_SECRET`：会话签名密钥。
-- `AUTH_CODE_RSA_PRIVATE_KEY`：PEM 格式 RSA 私钥，支持换行或 `\n` 转义。
+- `AUTH_CODE_RSA_PRIVATE_KEY_FILE`：PEM RSA 私钥文件路径，相对路径按 `.env` 所在目录解析。
+- `AUTH_CODE_RSA_PRIVATE_KEY`：PEM 格式 RSA 私钥内容，支持 `\n` 转义。
 
 可选环境变量：
 

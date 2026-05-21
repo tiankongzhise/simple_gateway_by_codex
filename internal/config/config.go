@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ const (
 	defaultDatabaseSSLMode = "disable"
 	defaultProxyTimeout    = 30 * time.Second
 	defaultMaxRetries      = 3
+	dotEnvPath             = ".env"
 )
 
 // DatabaseConfig contains PostgreSQL connection settings.
@@ -45,7 +47,12 @@ type Config struct {
 
 // Load reads .env, environment variables, applies defaults, and validates the result.
 func Load() (Config, error) {
-	_ = loadDotEnv(".env")
+	_ = loadDotEnv(dotEnvPath)
+
+	rsaPrivateKeyPEM, err := loadRSAPrivateKeyPEM(dotEnvPath)
+	if err != nil {
+		return Config{}, err
+	}
 
 	cfg := Config{
 		ServerAddr: getEnv("SERVER_ADDR", defaultServerAddr),
@@ -59,7 +66,7 @@ func Load() (Config, error) {
 		InviteCode:          strings.TrimSpace(os.Getenv("INVITE_CODE")),
 		SessionSecret:       strings.TrimSpace(os.Getenv("SESSION_SECRET")),
 		AuthServiceBaseURL:  strings.TrimRight(getEnv("AUTH_SERVICE_BASE_URL", defaultAuthServiceURL), "/"),
-		RSAPrivateKeyPEM:    normalizePEM(os.Getenv("AUTH_CODE_RSA_PRIVATE_KEY")),
+		RSAPrivateKeyPEM:    rsaPrivateKeyPEM,
 		PublicBaseURL:       strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_BASE_URL")), "/"),
 		DefaultProxyTimeout: defaultProxyTimeout,
 		MaxProxyRetries:     defaultMaxRetries,
@@ -126,7 +133,7 @@ func (c Config) Validate() error {
 		missing = append(missing, "SESSION_SECRET")
 	}
 	if c.RSAPrivateKeyPEM == "" {
-		missing = append(missing, "AUTH_CODE_RSA_PRIVATE_KEY")
+		missing = append(missing, "AUTH_CODE_RSA_PRIVATE_KEY or AUTH_CODE_RSA_PRIVATE_KEY_FILE")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
@@ -234,4 +241,25 @@ func unquoteEnvValue(value string) string {
 
 func normalizePEM(value string) string {
 	return strings.TrimSpace(strings.ReplaceAll(value, `\n`, "\n"))
+}
+
+func loadRSAPrivateKeyPEM(dotEnvPath string) (string, error) {
+	keyFile := strings.TrimSpace(os.Getenv("AUTH_CODE_RSA_PRIVATE_KEY_FILE"))
+	if keyFile == "" {
+		return normalizePEM(os.Getenv("AUTH_CODE_RSA_PRIVATE_KEY")), nil
+	}
+
+	resolvedPath := resolveConfigPath(dotEnvPath, keyFile)
+	pemBytes, err := os.ReadFile(resolvedPath)
+	if err != nil {
+		return "", fmt.Errorf("read AUTH_CODE_RSA_PRIVATE_KEY_FILE %q: %w", keyFile, err)
+	}
+	return normalizePEM(string(pemBytes)), nil
+}
+
+func resolveConfigPath(dotEnvPath, configuredPath string) string {
+	if filepath.IsAbs(configuredPath) {
+		return configuredPath
+	}
+	return filepath.Join(filepath.Dir(dotEnvPath), configuredPath)
 }
