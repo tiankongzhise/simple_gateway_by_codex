@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"simple_gateway_by_codex/internal/config"
+	"simple_gateway_by_codex/internal/db"
 	"simple_gateway_by_codex/internal/web"
 )
 
@@ -16,9 +17,19 @@ func Run(ctx context.Context) error {
 		return err
 	}
 
+	store, err := db.Open(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+	if err := db.RunMigrations(ctx, store.Pool()); err != nil {
+		return err
+	}
+
+	auth := web.NewBasicAuthForApp(store, cfg.InviteCode, cfg.CookieSecure)
 	server := &http.Server{
 		Addr:    cfg.ServerAddr,
-		Handler: web.NewServer(cfg.PublicBaseURL),
+		Handler: web.NewServerWithServices(cfg.PublicBaseURL, cfg.CookieSecure, auth),
 	}
 
 	errCh := make(chan error, 1)
