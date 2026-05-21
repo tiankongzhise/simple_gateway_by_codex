@@ -71,7 +71,7 @@ func (s *Server) routes() {
 		s.mux.Handle("/gw/", s.gateway)
 	}
 	if s.auth != nil {
-		s.mux.HandleFunc("GET /", s.handleIndex)
+		s.mux.HandleFunc("GET /{$}", s.handleIndex)
 		s.mux.HandleFunc("GET /login", s.handleLoginPage)
 		s.mux.HandleFunc("POST /login", s.handleLoginForm)
 		s.mux.HandleFunc("GET /register", s.handleRegisterPage)
