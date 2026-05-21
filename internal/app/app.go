@@ -36,7 +36,7 @@ func Run(ctx context.Context) error {
 	auth := web.NewBasicAuthForApp(store, cfg.InviteCode, cfg.CookieSecure, web.NewBindingVerifier(authClient), cipher)
 	server := &http.Server{
 		Addr:    cfg.ServerAddr,
-		Handler: web.NewServerWithServices(cfg.PublicBaseURL, cfg.CookieSecure, auth),
+		Handler: web.NewServerWithDependencies(cfg.PublicBaseURL, cfg.CookieSecure, auth, store),
 	}
 
 	errCh := make(chan error, 1)

@@ -11,6 +11,7 @@ type Server struct {
 	publicBaseURL string
 	cookieSecure  bool
 	auth          authService
+	routesStore   routeStore
 	mux           *http.ServeMux
 }
 
@@ -36,6 +37,19 @@ func NewServerWithServices(publicBaseURL string, cookieSecure bool, auth authSer
 	return s
 }
 
+// NewServerWithDependencies constructs a server with all implemented services.
+func NewServerWithDependencies(publicBaseURL string, cookieSecure bool, auth authService, routes routeStore) *Server {
+	s := &Server{
+		publicBaseURL: publicBaseURL,
+		cookieSecure:  cookieSecure,
+		auth:          auth,
+		routesStore:   routes,
+		mux:           http.NewServeMux(),
+	}
+	s.routes()
+	return s
+}
+
 func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/public/usage", s.handleUsage)
 	s.mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -47,6 +61,12 @@ func (s *Server) routes() {
 		s.mux.HandleFunc("POST /api/logout", s.requireAuth(s.handleLogout))
 		s.mux.HandleFunc("GET /api/me", s.requireAuth(s.handleMe))
 		s.mux.HandleFunc("PUT /api/service-group-binding", s.requireAuth(s.handleRebindServiceGroup))
+	}
+	if s.auth != nil && s.routesStore != nil {
+		s.mux.HandleFunc("GET /api/routes", s.requireAuth(s.handleListRoutes))
+		s.mux.HandleFunc("POST /api/routes", s.requireAuth(s.handleCreateRoute))
+		s.mux.HandleFunc("PUT /api/routes/{id}", s.requireAuth(s.handleUpdateRoute))
+		s.mux.HandleFunc("DELETE /api/routes/{id}", s.requireAuth(s.handleDeleteRoute))
 	}
 }
 
