@@ -139,6 +139,11 @@ func (e Error) Error() string {
 	return fmt.Sprintf("auth-service returned %d: %s", e.StatusCode, e.Message)
 }
 
+// Status returns the HTTP status code from auth-service.
+func (e Error) Status() int {
+	return e.StatusCode
+}
+
 func authStatusMessage(status int) string {
 	switch status {
 	case http.StatusBadRequest:

@@ -3,6 +3,7 @@ package web
 import (
 	"net/http"
 
+	"simple_gateway_by_codex/internal/authclient"
 	"simple_gateway_by_codex/internal/httpx"
 	"simple_gateway_by_codex/internal/proxy"
 )
@@ -42,7 +43,11 @@ func NewServerWithServices(publicBaseURL string, cookieSecure bool, auth authSer
 }
 
 // NewServerWithDependencies constructs a server with all implemented services.
-func NewServerWithDependencies(publicBaseURL string, cookieSecure bool, auth authService, routes routeStore, verifier bindingVerifier, cipher authCodeCipher) *Server {
+func NewServerWithDependencies(publicBaseURL string, cookieSecure bool, auth authService, routes routeStore, verifier bindingVerifier, cipher authCodeCipher, authClient *authclient.Client) *Server {
+	gateway := proxy.NewHandler(routes)
+	if authClient != nil && cipher != nil {
+		gateway.WithAuth(newProxyAuthAdapter(authClient), cipher)
+	}
 	s := &Server{
 		publicBaseURL:  publicBaseURL,
 		cookieSecure:   cookieSecure,
@@ -50,7 +55,7 @@ func NewServerWithDependencies(publicBaseURL string, cookieSecure bool, auth aut
 		routesStore:    routes,
 		authVerifier:   verifier,
 		authCodeCipher: cipher,
-		gateway:        proxy.NewHandler(routes),
+		gateway:        gateway,
 		mux:            http.NewServeMux(),
 	}
 	s.routes()

@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -17,12 +18,41 @@ import (
 type Store interface {
 	GetUserBySlug(ctx context.Context, slug string) (models.User, error)
 	ListEnabledRoutes(ctx context.Context, userID int64) ([]models.Route, error)
+	GetServiceGroupBinding(ctx context.Context, userID int64) (models.ServiceGroupBinding, error)
+}
+
+type AuthClient interface {
+	LatestServiceGroupToken(ctx context.Context, serviceGroupName, authorizationCode string) (GroupToken, error)
+	Verify(ctx context.Context, headers VerifyHeaders) (VerifyResult, error)
+}
+
+type GroupToken struct {
+	AccessToken string
+}
+
+type VerifyHeaders struct {
+	ServiceName       string
+	TargetServiceName string
+	AccessToken       string
+	Origin            string
+	Referer           string
+	Model             string
+}
+
+type VerifyResult struct {
+	OK bool
+}
+
+type AuthCodeCipher interface {
+	DecryptBinding(ciphertext, salt, algorithm string) (string, error)
 }
 
 // Handler serves /gw/{userSlug}/... requests.
 type Handler struct {
 	store      Store
 	httpClient *http.Client
+	authClient AuthClient
+	cipher     AuthCodeCipher
 }
 
 // NewHandler constructs a gateway proxy handler.
@@ -45,6 +75,13 @@ func NewHandler(store Store) *Handler {
 			},
 		},
 	}
+}
+
+// WithAuth enables runtime auth-service verification for auth routes.
+func (h *Handler) WithAuth(authClient AuthClient, cipher AuthCodeCipher) *Handler {
+	h.authClient = authClient
+	h.cipher = cipher
+	return h
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -73,10 +110,111 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if match.Route.AuthRequired {
-		httpx.Error(w, http.StatusUnauthorized, "unauthorized", "鉴权代理尚未启用")
-		return
+		if err := h.verifyRouteAuth(r, user.ID, match.Route); err != nil {
+			writeProxyAuthError(w, err)
+			return
+		}
 	}
 	h.forward(w, r, match)
+}
+
+func (h *Handler) verifyRouteAuth(r *http.Request, userID int64, route models.Route) error {
+	if h.authClient == nil {
+		return proxyAuthError{status: http.StatusInternalServerError, code: "auth_not_configured", message: "网关鉴权未配置"}
+	}
+	callerToken := strings.TrimSpace(r.Header.Get("Access-Token"))
+	serviceName := strings.TrimSpace(r.Header.Get("Service-Name"))
+	if serviceName == "" {
+		serviceName = route.AuthServiceName
+	}
+	if callerToken != "" {
+		result, err := h.authClient.Verify(r.Context(), VerifyHeaders{
+			ServiceName: serviceName,
+			AccessToken: callerToken,
+			Origin:      r.Header.Get("Origin"),
+			Referer:     r.Header.Get("Referer"),
+			Model:       r.Header.Get("model"),
+		})
+		if err != nil {
+			return mapAuthError(err)
+		}
+		if !result.OK {
+			return proxyAuthError{status: http.StatusForbidden, code: "forbidden", message: "鉴权失败"}
+		}
+		return nil
+	}
+
+	if h.cipher == nil {
+		return proxyAuthError{status: http.StatusInternalServerError, code: "auth_not_configured", message: "授权码解密未配置"}
+	}
+	binding, err := h.store.GetServiceGroupBinding(r.Context(), userID)
+	if err != nil {
+		return proxyAuthError{status: http.StatusUnauthorized, code: "unauthorized", message: "用户未绑定鉴权服务组"}
+	}
+	authorizationCode, err := h.cipher.DecryptBinding(binding.EncryptedAuthorizationCode, binding.Salt, binding.Algorithm)
+	if err != nil {
+		return proxyAuthError{status: http.StatusInternalServerError, code: "decrypt_failed", message: "授权码解密失败"}
+	}
+	groupToken, err := h.authClient.LatestServiceGroupToken(r.Context(), binding.ServiceGroupName, authorizationCode)
+	if err != nil {
+		return mapAuthError(err)
+	}
+	targetServiceName := serviceName
+	if targetServiceName == "" {
+		targetServiceName = route.AuthServiceName
+	}
+	result, err := h.authClient.Verify(r.Context(), VerifyHeaders{
+		ServiceName:       binding.ServiceGroupName,
+		TargetServiceName: targetServiceName,
+		AccessToken:       groupToken.AccessToken,
+	})
+	if err != nil {
+		return mapAuthError(err)
+	}
+	if !result.OK {
+		return proxyAuthError{status: http.StatusForbidden, code: "forbidden", message: "服务组无权限访问目标服务"}
+	}
+	return nil
+}
+
+type proxyAuthError struct {
+	status  int
+	code    string
+	message string
+}
+
+func (e proxyAuthError) Error() string {
+	return e.message
+}
+
+func writeProxyAuthError(w http.ResponseWriter, err error) {
+	var authErr proxyAuthError
+	if errors.As(err, &authErr) {
+		httpx.Error(w, authErr.status, authErr.code, authErr.message)
+		return
+	}
+	httpx.Error(w, http.StatusUnauthorized, "unauthorized", "鉴权失败")
+}
+
+func mapAuthError(err error) error {
+	type statusCoder interface {
+		error
+		Status() int
+	}
+	var withStatus statusCoder
+	if errors.As(err, &withStatus) {
+		switch withStatus.Status() {
+		case http.StatusUnauthorized:
+			return proxyAuthError{status: http.StatusUnauthorized, code: "unauthorized", message: "鉴权 token 无效"}
+		case http.StatusForbidden:
+			return proxyAuthError{status: http.StatusForbidden, code: "forbidden", message: "鉴权服务拒绝访问"}
+		case http.StatusTooManyRequests:
+			return proxyAuthError{status: http.StatusTooManyRequests, code: "rate_limited", message: "鉴权服务限流"}
+		default:
+			return proxyAuthError{status: http.StatusBadGateway, code: "auth_service_error", message: "鉴权服务异常"}
+		}
+	}
+	return proxyAuthError{status: http.StatusBadGateway, code: "auth_service_error", message: "鉴权服务异常"}
 }
 
 func (h *Handler) forward(w http.ResponseWriter, r *http.Request, match MatchResult) {
