@@ -46,6 +46,7 @@ func (s *Server) routes() {
 		s.mux.HandleFunc("POST /api/login", s.handleLogin)
 		s.mux.HandleFunc("POST /api/logout", s.requireAuth(s.handleLogout))
 		s.mux.HandleFunc("GET /api/me", s.requireAuth(s.handleMe))
+		s.mux.HandleFunc("PUT /api/service-group-binding", s.requireAuth(s.handleRebindServiceGroup))
 	}
 }
 

@@ -32,6 +32,8 @@ type authService interface {
 	Login(ctx context.Context, username, password string) (models.User, string, error)
 	GetSessionUser(ctx context.Context, token string) (models.User, error)
 	DeleteSession(ctx context.Context, token string) error
+	RebindServiceGroup(ctx context.Context, userID int64, serviceGroupName, authorizationCode string) (models.ServiceGroupBinding, error)
+	GetServiceGroupBinding(ctx context.Context, userID int64) (models.ServiceGroupBinding, error)
 }
 
 type basicAuthService struct {
@@ -156,6 +158,39 @@ func (s *basicAuthService) DeleteSession(ctx context.Context, token string) erro
 	return s.store.DeleteSession(ctx, security.HashToken(token))
 }
 
+func (s *basicAuthService) RebindServiceGroup(ctx context.Context, userID int64, serviceGroupName, authorizationCode string) (models.ServiceGroupBinding, error) {
+	serviceGroupName = strings.TrimSpace(serviceGroupName)
+	authorizationCode = strings.TrimSpace(authorizationCode)
+	if serviceGroupName == "" || authorizationCode == "" {
+		return models.ServiceGroupBinding{}, errBadRequest("服务组名称和永久授权码不能为空")
+	}
+	if s.binding == nil || s.cipher == nil {
+		return models.ServiceGroupBinding{}, errInternal(errors.New("binding service is not configured"))
+	}
+	if err := s.binding.ValidateServiceGroup(ctx, serviceGroupName, authorizationCode); err != nil {
+		return models.ServiceGroupBinding{}, err
+	}
+	encrypted, err := s.cipher.Encrypt(authorizationCode)
+	if err != nil {
+		return models.ServiceGroupBinding{}, errInternal(err)
+	}
+	binding, err := s.store.UpsertServiceGroupBinding(ctx, models.ServiceGroupBinding{
+		UserID:                     userID,
+		ServiceGroupName:           serviceGroupName,
+		EncryptedAuthorizationCode: encrypted.Ciphertext,
+		Salt:                       encrypted.Salt,
+		Algorithm:                  encrypted.Algorithm,
+	})
+	if err != nil {
+		return models.ServiceGroupBinding{}, errInternal(err)
+	}
+	return binding, nil
+}
+
+func (s *basicAuthService) GetServiceGroupBinding(ctx context.Context, userID int64) (models.ServiceGroupBinding, error) {
+	return s.store.GetServiceGroupBinding(ctx, userID)
+}
+
 func (s *basicAuthService) createSession(ctx context.Context, userID int64) (string, error) {
 	token, err := security.NewToken(32)
 	if err != nil {
@@ -213,7 +248,33 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 		writeAppError(w, errUnauthorized("未登录"))
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, map[string]any{"user": publicUser(user)})
+	resp := map[string]any{"user": publicUser(user)}
+	if binding, err := s.auth.GetServiceGroupBinding(r.Context(), user.ID); err == nil {
+		resp["binding"] = publicBinding(binding)
+	}
+	httpx.WriteJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleRebindServiceGroup(w http.ResponseWriter, r *http.Request) {
+	user, ok := currentUser(r.Context())
+	if !ok {
+		writeAppError(w, errUnauthorized("未登录"))
+		return
+	}
+	var req struct {
+		ServiceGroupName  string `json:"serviceGroupName"`
+		AuthorizationCode string `json:"authorizationCode"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeAppError(w, errBadRequest("请求体不是合法 JSON"))
+		return
+	}
+	binding, err := s.auth.RebindServiceGroup(r.Context(), user.ID, req.ServiceGroupName, req.AuthorizationCode)
+	if err != nil {
+		writeAppError(w, err)
+		return
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"binding": publicBinding(binding)})
 }
 
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
@@ -275,6 +336,16 @@ func publicUser(user models.User) map[string]any {
 		"userSlug":  user.UserSlug,
 		"createdAt": user.CreatedAt,
 		"updatedAt": user.UpdatedAt,
+	}
+}
+
+func publicBinding(binding models.ServiceGroupBinding) map[string]any {
+	return map[string]any{
+		"id":               binding.ID,
+		"serviceGroupName": binding.ServiceGroupName,
+		"algorithm":        binding.Algorithm,
+		"createdAt":        binding.CreatedAt,
+		"updatedAt":        binding.UpdatedAt,
 	}
 }
 
