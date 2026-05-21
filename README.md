@@ -10,8 +10,10 @@
 - 永久授权码使用 RSA-OAEP-SHA256 加随机 salt 加密存储。
 - 管理后台支持登录、注册、服务组换绑、路由新增/编辑/删除。
 - 路由支持前缀/精确匹配、方法限制、上游地址、去前缀、超时、重试、优先级、启停、请求/响应头规则。
-- 路由可选择鉴权或不鉴权。
-- 鉴权路由创建时会验证绑定服务组是否有权限管理目标鉴权服务。
+- 路由支持 `public`、`caller_token`、`signed_link` 三种访问模式。
+- 受保护路由创建时会验证绑定服务组是否有权限管理目标鉴权服务。
+- `caller_token` 模式必须由调用方提供 `Access-Token`，不会在无凭证时使用服务组 token 兜底。
+- `signed_link` 模式支持短期签名链接，适合临时分享。
 - 公共接口 `GET /api/public/usage` 会返回本服务对外接口说明。
 
 ## 环境要求
@@ -137,7 +139,7 @@ http://localhost:8080/binding
 - 上游基础地址，例如 `https://example.com`。
 - 是否去除匹配前缀。
 - 超时秒数、重试次数、优先级。
-- 是否需要鉴权。
+- 访问模式：`public`、`caller_token` 或 `signed_link`。
 - 鉴权服务名称。
 - 请求头/响应头规则。
 
@@ -148,12 +150,14 @@ set X-Gateway=simple
 remove Server
 ```
 
-如果选择“需要鉴权”，必须填写鉴权服务名称。保存时网关会：
+如果选择 `caller_token` 或 `signed_link`，必须填写鉴权服务名称。保存时网关会：
 
 1. 使用当前用户绑定的服务组永久授权码调用 `/api/service-groups/token/latest` 获取服务组 token。
 2. 调用鉴权服务 `/api/auth/verify`。
 3. 使用 `Service-Name: {serviceGroupName}`、`Target-Service-Name: {authServiceName}`、`Access-Token: {groupToken}` 校验该服务是否已注册且归当前服务组管理。
 4. 校验失败则拒绝保存路由。
+
+历史 API 字段 `authRequired=true` 仍会被兼容解析为 `caller_token`，新客户端建议直接使用 `accessMode`。
 
 ## 调用网关
 
@@ -169,14 +173,14 @@ remove Server
 curl http://localhost:8080/gw/alice/api/users
 ```
 
-非鉴权路由会直接转发。
+`public` 路由会直接转发。
 
-鉴权路由转发前会调用鉴权服务：
+`caller_token` 路由转发前会调用鉴权服务：
 
-- 如果请求携带 `Access-Token`，网关优先使用该 token。
+- 请求必须携带 `Access-Token`。
 - 如果请求携带 `Service-Name`，网关会透传该服务名。
 - 如果请求未携带 `Service-Name`，网关使用路由配置中的鉴权服务名称兜底。
-- 如果请求没有 `Access-Token`，网关使用当前用户绑定的服务组 token 校验目标服务。
+- 如果请求没有 `Access-Token`，网关直接返回 401，不访问上游。
 
 示例：
 
@@ -194,7 +198,20 @@ curl \
 curl http://localhost:8080/gw/alice/api/users
 ```
 
-此时网关会用绑定服务组的 token 兜底校验，目标服务名优先取请求头 `Service-Name`，否则取路由配置的鉴权服务名称。
+此时 `caller_token` 路由会返回 401。
+
+`signed_link` 路由需要先通过管理 API 生成短期签名链接：
+
+```bash
+curl \
+  -X POST \
+  -H "Content-Type: application/json" \
+  -b "gateway_session=your-session-cookie" \
+  -d '{"method":"GET","path":"/api/users","query":"page=1","expiresInSeconds":3600}' \
+  http://localhost:8080/api/routes/123/signed-link
+```
+
+返回的 URL 会包含 `gw_expires` 和 `gw_signature`。访问时网关会校验方法、完整网关路径、业务查询参数和过期时间，校验通过后删除这两个签名参数，只把业务查询参数转发给上游。
 
 ## 转发追踪日志
 
@@ -215,13 +232,14 @@ curl http://localhost:8080/gw/alice/api/users
 - `POST /api/routes`
 - `PUT /api/routes/{id}`
 - `DELETE /api/routes/{id}`
+- `POST /api/routes/{id}/signed-link`
 
 管理 API 登录后通过 `gateway_session` HttpOnly Cookie 鉴权。
 
 ## 常见错误
 
-- `400`：请求字段无效，例如鉴权路由缺少鉴权服务名称。
-- `401`：未登录、会话过期、授权码或 token 无效。
+- `400`：请求字段无效，例如受保护路由缺少鉴权服务名称。
+- `401`：未登录、会话过期、缺少调用方 token、授权码/token 无效或签名链接无效。
 - `403`：邀请码错误，或绑定服务组无权限管理目标服务。
 - `404`：用户、路由、服务组或目标服务不存在。
 - `405`：路由路径匹配但 HTTP 方法不允许。

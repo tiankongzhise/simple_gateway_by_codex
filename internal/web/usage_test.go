@@ -21,6 +21,11 @@ func TestBuildUsageDocumentIncludesGatewayAuthHeaders(t *testing.T) {
 			t.Fatalf("missing gateway header %s", required)
 		}
 	}
+
+	modes, ok := doc.Conventions["accessModes"].([]string)
+	if !ok || len(modes) == 0 {
+		t.Fatal("missing access mode conventions")
+	}
 }
 
 func TestBuildUsageDocumentDoesNotExposePrivateRouteData(t *testing.T) {
@@ -32,4 +37,15 @@ func TestBuildUsageDocumentDoesNotExposePrivateRouteData(t *testing.T) {
 	if len(doc.Endpoints) == 0 {
 		t.Fatal("expected endpoints")
 	}
+}
+
+func TestBuildUsageDocumentIncludesSignedLinkEndpoint(t *testing.T) {
+	doc := BuildUsageDocument("")
+
+	for _, endpoint := range doc.Endpoints {
+		if endpoint.Method == "POST" && endpoint.Path == "/api/routes/{id}/signed-link" {
+			return
+		}
+	}
+	t.Fatal("missing signed link endpoint")
 }
