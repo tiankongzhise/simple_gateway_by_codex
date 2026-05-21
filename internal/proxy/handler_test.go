@@ -9,7 +9,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
+	"simple_gateway_by_codex/internal/linksign"
 	"simple_gateway_by_codex/internal/models"
 )
 
@@ -133,6 +135,78 @@ func TestCallerTokenRouteRejectsMissingAccessToken(t *testing.T) {
 	}
 	if auth.lastVerify != (VerifyHeaders{}) {
 		t.Fatalf("lastVerify = %#v", auth.lastVerify)
+	}
+}
+
+func TestSignedLinkRouteVerifiesAndStripsSignatureParams(t *testing.T) {
+	store := &fakeStore{
+		user: models.User{ID: 1, UserSlug: "alice"},
+		routes: []models.Route{{
+			ID:             2,
+			Enabled:        true,
+			AccessMode:     models.AccessModeSignedLink,
+			MatchType:      "prefix",
+			PathPattern:    "/share",
+			Methods:        []string{"GET"},
+			UpstreamURL:    "http://upstream.local",
+			TimeoutSeconds: 5,
+		}},
+	}
+	signer := linksign.New("secret")
+	signedQuery := signer.AddSignature(http.MethodGet, "/gw/alice/share/report", "file=2026", time.Now().Add(time.Hour))
+	var upstreamRawQuery string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamRawQuery = r.URL.RawQuery
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	store.routes[0].UpstreamURL = upstream.URL
+
+	handler := NewHandler(store).WithLinkSigner(signer)
+	req := httptest.NewRequest(http.MethodGet, "/gw/alice/share/report?"+signedQuery, nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d", rr.Code)
+	}
+	if upstreamRawQuery != "file=2026" {
+		t.Fatalf("upstream query = %q", upstreamRawQuery)
+	}
+}
+
+func TestSignedLinkRouteRejectsMissingSignature(t *testing.T) {
+	store := &fakeStore{
+		user: models.User{ID: 1, UserSlug: "alice"},
+		routes: []models.Route{{
+			ID:             3,
+			Enabled:        true,
+			AccessMode:     models.AccessModeSignedLink,
+			MatchType:      "prefix",
+			PathPattern:    "/share",
+			Methods:        []string{"GET"},
+			UpstreamURL:    "http://upstream.local",
+			TimeoutSeconds: 5,
+		}},
+	}
+	var upstreamCalled bool
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalled = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer upstream.Close()
+	store.routes[0].UpstreamURL = upstream.URL
+
+	handler := NewHandler(store).WithLinkSigner(linksign.New("secret"))
+	req := httptest.NewRequest(http.MethodGet, "/gw/alice/share/report?file=2026", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d", rr.Code)
+	}
+	if upstreamCalled {
+		t.Fatal("upstream was called")
 	}
 }
 

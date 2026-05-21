@@ -2,9 +2,11 @@ package web
 
 import (
 	"net/http"
+	"strings"
 
 	"simple_gateway_by_codex/internal/authclient"
 	"simple_gateway_by_codex/internal/httpx"
+	"simple_gateway_by_codex/internal/linksign"
 	"simple_gateway_by_codex/internal/proxy"
 )
 
@@ -16,6 +18,7 @@ type Server struct {
 	routesStore    routeStore
 	authVerifier   bindingVerifier
 	authCodeCipher authCodeCipher
+	linkSigner     linksign.Signer
 	gateway        http.Handler
 	mux            *http.ServeMux
 }
@@ -43,10 +46,14 @@ func NewServerWithServices(publicBaseURL string, cookieSecure bool, auth authSer
 }
 
 // NewServerWithDependencies constructs a server with all implemented services.
-func NewServerWithDependencies(publicBaseURL string, cookieSecure bool, auth authService, routes routeStore, verifier bindingVerifier, cipher authCodeCipher, authClient *authclient.Client) *Server {
+func NewServerWithDependencies(publicBaseURL string, cookieSecure bool, auth authService, routes routeStore, verifier bindingVerifier, cipher authCodeCipher, authClient *authclient.Client, sessionSecret string) *Server {
+	linkSigner := linksign.New(sessionSecret)
 	gateway := proxy.NewHandler(routes)
 	if authClient != nil && cipher != nil {
 		gateway.WithAuth(newProxyAuthAdapter(authClient), cipher)
+	}
+	if strings.TrimSpace(sessionSecret) != "" {
+		gateway.WithLinkSigner(linkSigner)
 	}
 	s := &Server{
 		publicBaseURL:  publicBaseURL,
@@ -55,6 +62,7 @@ func NewServerWithDependencies(publicBaseURL string, cookieSecure bool, auth aut
 		routesStore:    routes,
 		authVerifier:   verifier,
 		authCodeCipher: cipher,
+		linkSigner:     linkSigner,
 		gateway:        gateway,
 		mux:            http.NewServeMux(),
 	}
@@ -95,6 +103,7 @@ func (s *Server) routes() {
 		s.mux.HandleFunc("POST /api/routes", s.requireAuth(s.handleCreateRoute))
 		s.mux.HandleFunc("PUT /api/routes/{id}", s.requireAuth(s.handleUpdateRoute))
 		s.mux.HandleFunc("DELETE /api/routes/{id}", s.requireAuth(s.handleDeleteRoute))
+		s.mux.HandleFunc("POST /api/routes/{id}/signed-link", s.requireAuth(s.handleCreateSignedLink))
 	}
 }
 

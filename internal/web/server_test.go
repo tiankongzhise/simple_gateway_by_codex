@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"simple_gateway_by_codex/internal/models"
@@ -16,6 +17,7 @@ func TestNewServerWithDependenciesRegistersRoutesWithoutConflict(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		"test-secret",
 	)
 	if server == nil {
 		t.Fatal("expected server")
@@ -80,4 +82,16 @@ func (stubRouteStore) DeleteRoute(context.Context, int64, int64) error {
 
 func (stubRouteStore) GetRoute(context.Context, int64, int64) (models.Route, error) {
 	return models.Route{}, nil
+}
+
+type signedLinkRouteStore struct {
+	stubRouteStore
+	route models.Route
+}
+
+func (s signedLinkRouteStore) GetRoute(context.Context, int64, int64) (models.Route, error) {
+	if s.route.ID == 0 {
+		return models.Route{}, errors.New("not found")
+	}
+	return s.route, nil
 }

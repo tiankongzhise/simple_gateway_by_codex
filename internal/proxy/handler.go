@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"simple_gateway_by_codex/internal/httpx"
+	"simple_gateway_by_codex/internal/linksign"
 	"simple_gateway_by_codex/internal/models"
 )
 
@@ -72,6 +73,7 @@ type Handler struct {
 	httpClient *http.Client
 	authClient AuthClient
 	cipher     AuthCodeCipher
+	linkSigner *linksign.Signer
 	logger     *slog.Logger
 }
 
@@ -101,6 +103,11 @@ func NewHandler(store Store) *Handler {
 func (h *Handler) WithAuth(authClient AuthClient, cipher AuthCodeCipher) *Handler {
 	h.authClient = authClient
 	h.cipher = cipher
+	return h
+}
+
+func (h *Handler) WithLinkSigner(signer linksign.Signer) *Handler {
+	h.linkSigner = &signer
 	return h
 }
 
@@ -188,6 +195,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if routeRequiresSignedLink(match.Route) {
+		if err := h.verifySignedLink(r, match.Route, trace); err != nil {
+			status, code := writeProxyAuthError(w, err)
+			logRequestFailed(trace, "signed_link", status, code, err)
+			return
+		}
+	}
 	result := h.forward(w, r, match, trace)
 	if !result.OK {
 		return
@@ -264,6 +278,33 @@ func routeRequiresCallerToken(route models.Route) bool {
 	return route.AccessMode == models.AccessModeCallerToken
 }
 
+func routeRequiresSignedLink(route models.Route) bool {
+	return route.AccessMode == models.AccessModeSignedLink
+}
+
+func (h *Handler) verifySignedLink(r *http.Request, route models.Route, trace traceContext) error {
+	if h.linkSigner == nil {
+		return proxyAuthError{status: http.StatusInternalServerError, code: "signed_link_not_configured", message: "签名链接未配置"}
+	}
+	trace.Logger.Info("proxy.signed_link.start",
+		"route_id", route.ID,
+	)
+	businessQuery, err := h.linkSigner.Verify(r.Method, r.URL.Path, r.URL.RawQuery, time.Now())
+	if err != nil {
+		trace.Logger.Warn("proxy.signed_link.failed",
+			"route_id", route.ID,
+			"error", safeError(err),
+		)
+		return mapSignedLinkError(err)
+	}
+	r.URL.RawQuery = businessQuery
+	trace.Logger.Info("proxy.signed_link.success",
+		"route_id", route.ID,
+		"has_business_query", businessQuery != "",
+	)
+	return nil
+}
+
 type proxyAuthError struct {
 	status  int
 	code    string
@@ -303,6 +344,19 @@ func mapAuthError(err error) error {
 		}
 	}
 	return proxyAuthError{status: http.StatusBadGateway, code: "auth_service_error", message: "鉴权服务异常"}
+}
+
+func mapSignedLinkError(err error) error {
+	switch {
+	case errors.Is(err, linksign.ErrMissingSignature):
+		return proxyAuthError{status: http.StatusUnauthorized, code: "missing_signature", message: "缺少签名链接参数"}
+	case errors.Is(err, linksign.ErrInvalidExpires):
+		return proxyAuthError{status: http.StatusUnauthorized, code: "invalid_signature_expires", message: "签名链接过期时间无效"}
+	case errors.Is(err, linksign.ErrExpired):
+		return proxyAuthError{status: http.StatusUnauthorized, code: "signature_expired", message: "签名链接已过期"}
+	default:
+		return proxyAuthError{status: http.StatusUnauthorized, code: "invalid_signature", message: "签名链接无效"}
+	}
 }
 
 func (h *Handler) forward(w http.ResponseWriter, r *http.Request, match MatchResult, trace traceContext) forwardResult {
