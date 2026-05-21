@@ -2,6 +2,12 @@ package models
 
 import "time"
 
+const (
+	AccessModePublic      = "public"
+	AccessModeCallerToken = "caller_token"
+	AccessModeSignedLink  = "signed_link"
+)
+
 // User is an account that owns isolated route configuration.
 type User struct {
 	ID           int64     `json:"id"`
@@ -40,6 +46,7 @@ type Route struct {
 	Name            string       `json:"name"`
 	Description     string       `json:"description"`
 	Enabled         bool         `json:"enabled"`
+	AccessMode      string       `json:"accessMode"`
 	MatchType       string       `json:"matchType"`
 	PathPattern     string       `json:"pathPattern"`
 	Methods         []string     `json:"methods"`

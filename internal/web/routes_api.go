@@ -28,6 +28,7 @@ type routeRequest struct {
 	Name                string              `json:"name"`
 	Description         string              `json:"description"`
 	Enabled             bool                `json:"enabled"`
+	AccessMode          string              `json:"accessMode"`
 	MatchType           string              `json:"matchType"`
 	PathPattern         string              `json:"pathPattern"`
 	Methods             []string            `json:"methods"`
@@ -151,12 +152,14 @@ func parseRouteID(r *http.Request) (int64, error) {
 }
 
 func (r routeRequest) toModel(userID, routeID int64) (models.Route, error) {
+	accessMode := normalizeAccessMode(r.AccessMode, r.AuthRequired)
 	route := models.Route{
 		ID:              routeID,
 		UserID:          userID,
 		Name:            strings.TrimSpace(r.Name),
 		Description:     strings.TrimSpace(r.Description),
 		Enabled:         r.Enabled,
+		AccessMode:      accessMode,
 		MatchType:       strings.TrimSpace(r.MatchType),
 		PathPattern:     normalizePathPattern(r.PathPattern),
 		Methods:         normalizeMethods(r.Methods),
@@ -165,12 +168,12 @@ func (r routeRequest) toModel(userID, routeID int64) (models.Route, error) {
 		TimeoutSeconds:  r.TimeoutSeconds,
 		RetryCount:      r.RetryCount,
 		Priority:        r.Priority,
-		AuthRequired:    r.AuthRequired,
+		AuthRequired:    accessMode != models.AccessModePublic,
 		AuthServiceName: strings.TrimSpace(r.AuthServiceName),
 		RequestHeaders:  normalizeHeaderRules("request", r.RequestHeaderRules),
 		ResponseHeaders: normalizeHeaderRules("response", r.ResponseHeaderRules),
 	}
-	if !route.AuthRequired {
+	if route.AccessMode == models.AccessModePublic {
 		route.AuthServiceName = ""
 	}
 	if route.TimeoutSeconds == 0 {
@@ -182,9 +185,25 @@ func (r routeRequest) toModel(userID, routeID int64) (models.Route, error) {
 	return route, nil
 }
 
+func normalizeAccessMode(accessMode string, authRequired bool) string {
+	accessMode = strings.TrimSpace(accessMode)
+	if accessMode != "" {
+		return accessMode
+	}
+	if authRequired {
+		return models.AccessModeCallerToken
+	}
+	return models.AccessModePublic
+}
+
 func validateRoute(route models.Route) error {
 	if route.Name == "" || len(route.Name) > 120 {
 		return errBadRequest("路由名称不能为空且不能超过 120 个字符")
+	}
+	if route.AccessMode != models.AccessModePublic &&
+		route.AccessMode != models.AccessModeCallerToken &&
+		route.AccessMode != models.AccessModeSignedLink {
+		return errBadRequest("访问模式必须是 public、caller_token 或 signed_link")
 	}
 	if route.MatchType != "prefix" && route.MatchType != "exact" {
 		return errBadRequest("匹配方式必须是 prefix 或 exact")
@@ -205,8 +224,8 @@ func validateRoute(route models.Route) error {
 	if route.RetryCount < 0 {
 		return errBadRequest("重试次数不能小于 0")
 	}
-	if route.AuthRequired && route.AuthServiceName == "" {
-		return errBadRequest("鉴权路由必须填写鉴权服务名称")
+	if route.AccessMode != models.AccessModePublic && route.AuthServiceName == "" {
+		return errBadRequest("受保护路由必须填写鉴权服务名称")
 	}
 	for _, rule := range append(route.RequestHeaders, route.ResponseHeaders...) {
 		if rule.Operation != "set" && rule.Operation != "remove" {

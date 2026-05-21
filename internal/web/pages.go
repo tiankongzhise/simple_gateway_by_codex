@@ -67,14 +67,14 @@ func (s *Server) handleRoutesPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleNewRoutePage(w http.ResponseWriter, r *http.Request) {
-	renderRouteForm(w, "新增路由", "/routes/new", models.Route{Enabled: true, MatchType: "prefix", PathPattern: "/", Methods: []string{"ALL"}, TimeoutSeconds: 30})
+	renderRouteForm(w, "新增路由", "/routes/new", defaultRouteFormModel())
 }
 
 func (s *Server) handleCreateRouteForm(w http.ResponseWriter, r *http.Request) {
 	user, _ := currentUser(r.Context())
 	req, err := routeRequestFromForm(r)
 	if err != nil {
-		renderRouteFormWithError(w, "新增路由", "/routes/new", models.Route{Enabled: true, MatchType: "prefix", TimeoutSeconds: 30}, err.Error())
+		renderRouteFormWithError(w, "新增路由", "/routes/new", defaultRouteFormModel(), err.Error())
 		return
 	}
 	route, err := req.toModel(user.ID, 0)
@@ -176,6 +176,7 @@ func routeRequestFromForm(r *http.Request) (routeRequest, error) {
 		Name:                r.FormValue("name"),
 		Description:         r.FormValue("description"),
 		Enabled:             r.FormValue("enabled") == "true",
+		AccessMode:          r.FormValue("accessMode"),
 		MatchType:           r.FormValue("matchType"),
 		PathPattern:         r.FormValue("pathPattern"),
 		Methods:             splitCSV(r.FormValue("methods")),
@@ -196,6 +197,7 @@ func renderRouteForm(w http.ResponseWriter, heading, action string, route models
 }
 
 func renderRouteFormWithError(w http.ResponseWriter, heading, action string, route models.Route, message string) {
+	route = normalizeRouteForForm(route)
 	renderTemplate(w, "route_form", map[string]any{
 		"Title":               heading,
 		"Heading":             heading,
@@ -206,6 +208,28 @@ func renderRouteFormWithError(w http.ResponseWriter, heading, action string, rou
 		"ResponseHeadersText": headerRulesText(route.ResponseHeaders),
 		"Error":               message,
 	})
+}
+
+func defaultRouteFormModel() models.Route {
+	return models.Route{
+		Enabled:        true,
+		AccessMode:     models.AccessModePublic,
+		MatchType:      "prefix",
+		PathPattern:    "/",
+		Methods:        []string{"ALL"},
+		TimeoutSeconds: 30,
+	}
+}
+
+func normalizeRouteForForm(route models.Route) models.Route {
+	if route.AccessMode == "" {
+		if route.AuthRequired {
+			route.AccessMode = models.AccessModeCallerToken
+		} else {
+			route.AccessMode = models.AccessModePublic
+		}
+	}
+	return route
 }
 
 func splitCSV(value string) []string {

@@ -35,6 +35,7 @@ CREATE TABLE routes (
 	name TEXT NOT NULL,
 	description TEXT NOT NULL DEFAULT '',
 	enabled BOOLEAN NOT NULL DEFAULT TRUE,
+	access_mode TEXT NOT NULL DEFAULT 'public' CHECK (access_mode IN ('public', 'caller_token', 'signed_link')),
 	match_type TEXT NOT NULL CHECK (match_type IN ('prefix', 'exact')),
 	path_pattern TEXT NOT NULL,
 	methods TEXT[] NOT NULL DEFAULT ARRAY['ALL']::TEXT[],
@@ -47,7 +48,8 @@ CREATE TABLE routes (
 	auth_service_name TEXT NOT NULL DEFAULT '',
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	CONSTRAINT routes_auth_service_required CHECK (auth_required = FALSE OR auth_service_name <> '')
+	CONSTRAINT routes_auth_service_required CHECK (auth_required = FALSE OR auth_service_name <> ''),
+	CONSTRAINT routes_access_mode_auth_service_required CHECK (access_mode = 'public' OR auth_service_name <> '')
 );
 
 CREATE INDEX routes_user_enabled_idx ON routes(user_id, enabled);

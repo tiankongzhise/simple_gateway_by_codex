@@ -47,22 +47,23 @@ func (s *Store) UpdateRoute(ctx context.Context, route models.Route) (models.Rou
 			name=$3,
 			description=$4,
 			enabled=$5,
-			match_type=$6,
-			path_pattern=$7,
-			methods=$8,
-			upstream_url=$9,
-			strip_prefix=$10,
-			timeout_seconds=$11,
-			retry_count=$12,
-			priority=$13,
-			auth_required=$14,
-			auth_service_name=$15,
+			access_mode=$6,
+			match_type=$7,
+			path_pattern=$8,
+			methods=$9,
+			upstream_url=$10,
+			strip_prefix=$11,
+			timeout_seconds=$12,
+			retry_count=$13,
+			priority=$14,
+			auth_required=$15,
+			auth_service_name=$16,
 			updated_at=NOW()
 		WHERE user_id=$1 AND id=$2
-		RETURNING id, user_id, name, description, enabled, match_type, path_pattern, methods,
+		RETURNING id, user_id, name, description, enabled, access_mode, match_type, path_pattern, methods,
 			upstream_url, strip_prefix, timeout_seconds, retry_count, priority, auth_required,
 			auth_service_name, created_at, updated_at
-	`, route.UserID, route.ID, route.Name, route.Description, route.Enabled, route.MatchType, route.PathPattern,
+	`, route.UserID, route.ID, route.Name, route.Description, route.Enabled, route.AccessMode, route.MatchType, route.PathPattern,
 		route.Methods, route.UpstreamURL, route.StripPrefix, route.TimeoutSeconds, route.RetryCount,
 		route.Priority, route.AuthRequired, route.AuthServiceName).Scan(
 		&updated.ID,
@@ -70,6 +71,7 @@ func (s *Store) UpdateRoute(ctx context.Context, route models.Route) (models.Rou
 		&updated.Name,
 		&updated.Description,
 		&updated.Enabled,
+		&updated.AccessMode,
 		&updated.MatchType,
 		&updated.PathPattern,
 		&updated.Methods,
@@ -117,7 +119,7 @@ func (s *Store) DeleteRoute(ctx context.Context, userID, routeID int64) error {
 // GetRoute returns one user-owned route with header rules.
 func (s *Store) GetRoute(ctx context.Context, userID, routeID int64) (models.Route, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, user_id, name, description, enabled, match_type, path_pattern, methods,
+		SELECT id, user_id, name, description, enabled, access_mode, match_type, path_pattern, methods,
 			upstream_url, strip_prefix, timeout_seconds, retry_count, priority, auth_required,
 			auth_service_name, created_at, updated_at
 		FROM routes
@@ -143,7 +145,7 @@ func (s *Store) GetRoute(ctx context.Context, userID, routeID int64) (models.Rou
 // ListRoutes returns all routes for a user ordered for management display.
 func (s *Store) ListRoutes(ctx context.Context, userID int64) ([]models.Route, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, user_id, name, description, enabled, match_type, path_pattern, methods,
+		SELECT id, user_id, name, description, enabled, access_mode, match_type, path_pattern, methods,
 			upstream_url, strip_prefix, timeout_seconds, retry_count, priority, auth_required,
 			auth_service_name, created_at, updated_at
 		FROM routes
@@ -174,7 +176,7 @@ func (s *Store) ListRoutes(ctx context.Context, userID int64) ([]models.Route, e
 // ListEnabledRoutes returns enabled routes for runtime gateway matching.
 func (s *Store) ListEnabledRoutes(ctx context.Context, userID int64) ([]models.Route, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, user_id, name, description, enabled, match_type, path_pattern, methods,
+		SELECT id, user_id, name, description, enabled, access_mode, match_type, path_pattern, methods,
 			upstream_url, strip_prefix, timeout_seconds, retry_count, priority, auth_required,
 			auth_service_name, created_at, updated_at
 		FROM routes
@@ -208,6 +210,7 @@ type routeRow struct {
 	Name            string    `db:"name"`
 	Description     string    `db:"description"`
 	Enabled         bool      `db:"enabled"`
+	AccessMode      string    `db:"access_mode"`
 	MatchType       string    `db:"match_type"`
 	PathPattern     string    `db:"path_pattern"`
 	Methods         []string  `db:"methods"`
@@ -229,6 +232,7 @@ func (r routeRow) toModel() models.Route {
 		Name:            r.Name,
 		Description:     r.Description,
 		Enabled:         r.Enabled,
+		AccessMode:      r.AccessMode,
 		MatchType:       r.MatchType,
 		PathPattern:     r.PathPattern,
 		Methods:         r.Methods,
@@ -254,14 +258,14 @@ func insertRoute(ctx context.Context, q queryer, route models.Route) (models.Rou
 	var created models.Route
 	err := q.QueryRow(ctx, `
 		INSERT INTO routes (
-			user_id, name, description, enabled, match_type, path_pattern, methods, upstream_url,
+			user_id, name, description, enabled, access_mode, match_type, path_pattern, methods, upstream_url,
 			strip_prefix, timeout_seconds, retry_count, priority, auth_required, auth_service_name
 		)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
-		RETURNING id, user_id, name, description, enabled, match_type, path_pattern, methods,
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+		RETURNING id, user_id, name, description, enabled, access_mode, match_type, path_pattern, methods,
 			upstream_url, strip_prefix, timeout_seconds, retry_count, priority, auth_required,
 			auth_service_name, created_at, updated_at
-	`, route.UserID, route.Name, route.Description, route.Enabled, route.MatchType, route.PathPattern,
+	`, route.UserID, route.Name, route.Description, route.Enabled, route.AccessMode, route.MatchType, route.PathPattern,
 		route.Methods, route.UpstreamURL, route.StripPrefix, route.TimeoutSeconds, route.RetryCount,
 		route.Priority, route.AuthRequired, route.AuthServiceName).Scan(
 		&created.ID,
@@ -269,6 +273,7 @@ func insertRoute(ctx context.Context, q queryer, route models.Route) (models.Rou
 		&created.Name,
 		&created.Description,
 		&created.Enabled,
+		&created.AccessMode,
 		&created.MatchType,
 		&created.PathPattern,
 		&created.Methods,

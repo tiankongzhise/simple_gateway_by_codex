@@ -105,7 +105,7 @@ var pageTemplates = template.Must(template.New("pages").Parse(`
 			<td><strong>{{.Name}}</strong><div class="muted">{{.Description}}</div></td>
 			<td>{{.MatchType}} <code>{{.PathPattern}}</code><div class="muted">{{range .Methods}}{{.}} {{end}}</div></td>
 			<td><code>{{.UpstreamURL}}</code></td>
-			<td>{{if .AuthRequired}}是：{{.AuthServiceName}}{{else}}否{{end}}</td>
+			<td>{{.AccessMode}}{{if .AuthServiceName}}<div class="muted">{{.AuthServiceName}}</div>{{end}}</td>
 			<td>{{if .Enabled}}启用{{else}}停用{{end}}</td>
 			<td class="actions"><a class="button secondary" href="/routes/{{.ID}}/edit">编辑</a><form method="post" action="/routes/{{.ID}}/delete"><button class="danger" type="submit">删除</button></form></td>
 		</tr>
@@ -139,7 +139,12 @@ var pageTemplates = template.Must(template.New("pages").Parse(`
 		</div>
 		<label><input style="width:auto" type="checkbox" name="enabled" value="true" {{if .Route.Enabled}}checked{{end}}> 启用</label>
 		<label><input style="width:auto" type="checkbox" name="stripPrefix" value="true" {{if .Route.StripPrefix}}checked{{end}}> 转发时去除匹配前缀</label>
-		<label><input style="width:auto" type="checkbox" name="authRequired" value="true" {{if .Route.AuthRequired}}checked{{end}}> 需要鉴权</label>
+		<label>访问模式</label>
+		<select name="accessMode">
+			<option value="public" {{if eq .Route.AccessMode "public"}}selected{{end}}>公开访问</option>
+			<option value="caller_token" {{if eq .Route.AccessMode "caller_token"}}selected{{end}}>调用方 Token</option>
+			<option value="signed_link" {{if eq .Route.AccessMode "signed_link"}}selected{{end}}>短期签名链接</option>
+		</select>
 		<label>鉴权服务名称</label><input name="authServiceName" value="{{.Route.AuthServiceName}}">
 		<label>请求头规则</label><textarea name="requestHeaders" placeholder="set X-Name=value&#10;remove X-Secret">{{.RequestHeadersText}}</textarea>
 		<label>响应头规则</label><textarea name="responseHeaders" placeholder="set X-Gateway=simple&#10;remove Server">{{.ResponseHeadersText}}</textarea>
