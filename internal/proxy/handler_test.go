@@ -53,6 +53,7 @@ func TestAuthRouteUsesCallerTokenAndServiceNameFallback(t *testing.T) {
 		routes: []models.Route{{
 			ID:              1,
 			Enabled:         true,
+			AccessMode:      models.AccessModeCallerToken,
 			MatchType:       "prefix",
 			PathPattern:     "/api",
 			Methods:         []string{"GET"},
@@ -90,13 +91,14 @@ func TestAuthRouteUsesCallerTokenAndServiceNameFallback(t *testing.T) {
 	}
 }
 
-func TestAuthRouteFallsBackToGroupToken(t *testing.T) {
+func TestCallerTokenRouteRejectsMissingAccessToken(t *testing.T) {
 	store := &fakeStore{
 		user:    models.User{ID: 1, UserSlug: "alice"},
 		binding: models.ServiceGroupBinding{ServiceGroupName: "group", EncryptedAuthorizationCode: "cipher", Salt: "salt", Algorithm: "alg"},
 		routes: []models.Route{{
 			ID:              1,
 			Enabled:         true,
+			AccessMode:      models.AccessModeCallerToken,
 			MatchType:       "prefix",
 			PathPattern:     "/api",
 			Methods:         []string{"GET"},
@@ -108,7 +110,9 @@ func TestAuthRouteFallsBackToGroupToken(t *testing.T) {
 	}
 	auth := &fakeAuthClient{verifyOK: true, groupToken: "group-token"}
 	handler := NewHandler(store).WithAuth(auth, fakeCipher{code: "permanent"})
+	var upstreamCalled bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalled = true
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	defer upstream.Close()
@@ -118,13 +122,16 @@ func TestAuthRouteFallsBackToGroupToken(t *testing.T) {
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 
-	if rr.Code != http.StatusNoContent {
+	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d", rr.Code)
 	}
-	if auth.lastTokenGroup != "group" {
+	if upstreamCalled {
+		t.Fatal("upstream was called")
+	}
+	if auth.lastTokenGroup != "" {
 		t.Fatalf("lastTokenGroup = %q", auth.lastTokenGroup)
 	}
-	if auth.lastVerify.ServiceName != "group" || auth.lastVerify.TargetServiceName != "route-service" {
+	if auth.lastVerify != (VerifyHeaders{}) {
 		t.Fatalf("lastVerify = %#v", auth.lastVerify)
 	}
 }
@@ -284,6 +291,7 @@ func TestForwardingLogsDoNotExposeSensitiveValues(t *testing.T) {
 		routes: []models.Route{{
 			ID:              9,
 			Enabled:         true,
+			AccessMode:      models.AccessModeCallerToken,
 			MatchType:       "prefix",
 			PathPattern:     "/api",
 			Methods:         []string{"POST"},
@@ -374,6 +382,7 @@ func TestForwardingLogsFailures(t *testing.T) {
 			routes: []models.Route{{
 				ID:              1,
 				Enabled:         true,
+				AccessMode:      models.AccessModeCallerToken,
 				MatchType:       "prefix",
 				PathPattern:     "/api",
 				Methods:         []string{"GET"},

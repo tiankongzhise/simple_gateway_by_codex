@@ -178,10 +178,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		"path_pattern", match.Route.PathPattern,
 		"remaining_path", match.RemainingPath,
 		"priority", match.Route.Priority,
+		"access_mode", match.Route.AccessMode,
 		"auth_required", match.Route.AuthRequired,
 	)
-	if match.Route.AuthRequired {
-		if err := h.verifyRouteAuth(r, user.ID, match.Route, trace); err != nil {
+	if routeRequiresCallerToken(match.Route) {
+		if err := h.verifyRouteAuth(r, match.Route, trace); err != nil {
 			status, code := writeProxyAuthError(w, err)
 			logRequestFailed(trace, "auth", status, code, err)
 			return
@@ -200,7 +201,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
-func (h *Handler) verifyRouteAuth(r *http.Request, userID int64, route models.Route, trace traceContext) error {
+func (h *Handler) verifyRouteAuth(r *http.Request, route models.Route, trace traceContext) error {
 	if h.authClient == nil {
 		return proxyAuthError{status: http.StatusInternalServerError, code: "auth_not_configured", message: "网关鉴权未配置"}
 	}
@@ -209,97 +210,31 @@ func (h *Handler) verifyRouteAuth(r *http.Request, userID int64, route models.Ro
 	if serviceName == "" {
 		serviceName = route.AuthServiceName
 	}
-	if callerToken != "" {
-		trace.Logger.Info("proxy.auth.start",
+	if callerToken == "" {
+		trace.Logger.Warn("proxy.auth.failed",
 			"auth_mode", "caller_token",
 			"service_name", serviceName,
 			"route_id", route.ID,
+			"error", "missing_access_token",
 		)
-		result, err := h.authClient.Verify(r.Context(), VerifyHeaders{
-			ServiceName: serviceName,
-			AccessToken: callerToken,
-			Origin:      r.Header.Get("Origin"),
-			Referer:     r.Header.Get("Referer"),
-			Model:       r.Header.Get("model"),
-		})
-		if err != nil {
-			trace.Logger.Warn("proxy.auth.failed",
-				"auth_mode", "caller_token",
-				"service_name", serviceName,
-				"route_id", route.ID,
-				"error", safeError(err),
-			)
-			return mapAuthError(err)
-		}
-		if !result.OK {
-			trace.Logger.Warn("proxy.auth.failed",
-				"auth_mode", "caller_token",
-				"service_name", serviceName,
-				"route_id", route.ID,
-				"result_ok", false,
-			)
-			return proxyAuthError{status: http.StatusForbidden, code: "forbidden", message: "鉴权失败"}
-		}
-		trace.Logger.Info("proxy.auth.success",
-			"auth_mode", "caller_token",
-			"service_name", serviceName,
-			"route_id", route.ID,
-		)
-		return nil
-	}
-
-	if h.cipher == nil {
-		return proxyAuthError{status: http.StatusInternalServerError, code: "auth_not_configured", message: "授权码解密未配置"}
+		return proxyAuthError{status: http.StatusUnauthorized, code: "missing_access_token", message: "缺少 Access-Token"}
 	}
 	trace.Logger.Info("proxy.auth.start",
-		"auth_mode", "service_group_fallback",
+		"auth_mode", "caller_token",
 		"service_name", serviceName,
-		"target_service_name", route.AuthServiceName,
 		"route_id", route.ID,
 	)
-	binding, err := h.store.GetServiceGroupBinding(r.Context(), userID)
-	if err != nil {
-		trace.Logger.Warn("proxy.auth.failed",
-			"auth_mode", "service_group_fallback",
-			"route_id", route.ID,
-			"error", safeError(err),
-		)
-		return proxyAuthError{status: http.StatusUnauthorized, code: "unauthorized", message: "用户未绑定鉴权服务组"}
-	}
-	authorizationCode, err := h.cipher.DecryptBinding(binding.EncryptedAuthorizationCode, binding.Salt, binding.Algorithm)
-	if err != nil {
-		trace.Logger.Warn("proxy.auth.failed",
-			"auth_mode", "service_group_fallback",
-			"service_group_name", binding.ServiceGroupName,
-			"route_id", route.ID,
-			"error", safeError(err),
-		)
-		return proxyAuthError{status: http.StatusInternalServerError, code: "decrypt_failed", message: "授权码解密失败"}
-	}
-	groupToken, err := h.authClient.LatestServiceGroupToken(r.Context(), binding.ServiceGroupName, authorizationCode)
-	if err != nil {
-		trace.Logger.Warn("proxy.auth.failed",
-			"auth_mode", "service_group_fallback",
-			"service_group_name", binding.ServiceGroupName,
-			"route_id", route.ID,
-			"error", safeError(err),
-		)
-		return mapAuthError(err)
-	}
-	targetServiceName := serviceName
-	if targetServiceName == "" {
-		targetServiceName = route.AuthServiceName
-	}
 	result, err := h.authClient.Verify(r.Context(), VerifyHeaders{
-		ServiceName:       binding.ServiceGroupName,
-		TargetServiceName: targetServiceName,
-		AccessToken:       groupToken.AccessToken,
+		ServiceName: serviceName,
+		AccessToken: callerToken,
+		Origin:      r.Header.Get("Origin"),
+		Referer:     r.Header.Get("Referer"),
+		Model:       r.Header.Get("model"),
 	})
 	if err != nil {
 		trace.Logger.Warn("proxy.auth.failed",
-			"auth_mode", "service_group_fallback",
-			"service_group_name", binding.ServiceGroupName,
-			"target_service_name", targetServiceName,
+			"auth_mode", "caller_token",
+			"service_name", serviceName,
 			"route_id", route.ID,
 			"error", safeError(err),
 		)
@@ -307,21 +242,26 @@ func (h *Handler) verifyRouteAuth(r *http.Request, userID int64, route models.Ro
 	}
 	if !result.OK {
 		trace.Logger.Warn("proxy.auth.failed",
-			"auth_mode", "service_group_fallback",
-			"service_group_name", binding.ServiceGroupName,
-			"target_service_name", targetServiceName,
+			"auth_mode", "caller_token",
+			"service_name", serviceName,
 			"route_id", route.ID,
 			"result_ok", false,
 		)
-		return proxyAuthError{status: http.StatusForbidden, code: "forbidden", message: "服务组无权限访问目标服务"}
+		return proxyAuthError{status: http.StatusForbidden, code: "forbidden", message: "鉴权失败"}
 	}
 	trace.Logger.Info("proxy.auth.success",
-		"auth_mode", "service_group_fallback",
-		"service_group_name", binding.ServiceGroupName,
-		"target_service_name", targetServiceName,
+		"auth_mode", "caller_token",
+		"service_name", serviceName,
 		"route_id", route.ID,
 	)
 	return nil
+}
+
+func routeRequiresCallerToken(route models.Route) bool {
+	if route.AccessMode == "" {
+		return route.AuthRequired
+	}
+	return route.AccessMode == models.AccessModeCallerToken
 }
 
 type proxyAuthError struct {
